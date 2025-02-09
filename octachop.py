@@ -33,7 +33,9 @@ from spleeter.audio.adapter import AudioAdapter
 
 input_path = ("test_data/omen.wav")
 output_path =("test_output")
-sample_rate = 44100
+
+## Obtain sample rate of given audio file(s)
+sample_rate = librosia.get_samplerate(input_path)
 
 audio_data, sr = librosa.load(input_path, sr=sample_rate)
 
