@@ -10,6 +10,10 @@ This is to do with a dependency issue within spleeter. Until that is fixed, plea
 the script with Python 3.10 
 """
 
+## Ignores verbose TensorFlow warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
 
