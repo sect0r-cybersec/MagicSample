@@ -23,9 +23,6 @@ import numpy as np
 ## I'm using a pretrained algorithm supplied with the library to separate stems.
 from spleeter.separator import Separator
 
-## Instantiate 5 stem separator object
-separator = Separator("spleeter:5stems")
-
 path = ("test_data/omen.wav")
 
 audio_data, sr = librosa.load(path, sr=22050)
@@ -37,4 +34,9 @@ def detect_bpm(audio_data, sr):
 
 print(detect_bpm(audio_data, sr))
 
-separator.separate_to_file(path,"/")
+## To prevent the module from recursively calling itself
+if __name__ == "__main__":
+    ## Instantiate 5 stem separator object
+    ## Multiprocessing must be switched off else it will not work with windows
+    separator = Separator("spleeter:5stems", multiprocess=False)
+    separator.separate_to_file(path,"test_output")
