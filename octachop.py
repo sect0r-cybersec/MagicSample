@@ -38,5 +38,5 @@ print(detect_bpm(audio_data, sr))
 if __name__ == "__main__":
     ## Instantiate 5 stem separator object
     ## Multiprocessing must be switched off else it will not work with windows
-    separator = Separator("spleeter:5stems", multiprocess=False)
+    separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
     separator.separate_to_file(path,"test_output")
