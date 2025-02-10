@@ -1,4 +1,4 @@
-/test_data
-/test_output
-/pretrained_models
-/temp
+test_data/
+test_output/
+pretrained_models/
+temp/
