@@ -64,6 +64,7 @@ for key in list_of_keys:
     print (key)
     value = waveform_dict[key]
     print(value.dtype)
+    value = np.float32(value)
     export_path = ("{}/{}.wav".format(output_path, key))
     with sf.SoundFile(export_path, "w", sample_rate, 1, subtype="PCM_24") as wav_file:
         sf.write(wav_file, value, sample_rate, subtype="PCM_24")
