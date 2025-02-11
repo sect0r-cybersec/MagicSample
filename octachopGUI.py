@@ -24,6 +24,7 @@ import sys
 ##from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QGridLayout, QLineEdit, QProgressBar, QPushButton, QCheckBox, QSlider, QComboBox, QTreeWidget, QTreeView
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import *
+from PyQt6.QtCore import *
 
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
@@ -114,15 +115,21 @@ class Window(QWidget):
         self.setWindowTitle("OctaChop")
         model = QFileSystemModel()
         model.setRootPath("")
+        layout = QGridLayout()
+        
         input_tree = QTreeView()
         input_tree.setModel(model)
+        layout.addWidget(input_tree, 0, 0, 3, 3)
+                
         output_tree = QTreeView()
         output_tree.setModel(model)
-        layout = QGridLayout()
-        layout.addWidget(input_tree, 0, 0, 3, 3)
         layout.addWidget(output_tree, 0, 3, 3, 3)
+        
         layout.addWidget(QCheckBox("Split to stems?"), 3, 0)
-        layout.addWidget(QSlider(), 3, 1, 1, 2)
+
+        sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
+        layout.addWidget(sensitivity_slider, 3, 1, 1, 2)
+
         layout.addWidget(QLineEdit("Foldername"), 3, 3)
         layout.addWidget(QComboBox(), 3, 4)
         layout.addWidget(QPushButton("Start"), 3, 5)
