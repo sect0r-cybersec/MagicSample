@@ -61,10 +61,10 @@ other
 piano
 vocals
 """
-def split_to_samples(input_filename, path_to_samples):
+def split_to_samples(drumkit_filename, path_to_samples):
     absolute_path_to_samples = os.path.abspath(path_to_samples)
-    os.mkdir(input_filename)
-    os.chdir(input_filename)
+    os.mkdir(drumkit_filename)
+    os.chdir(drumkit_filename)
     for stem_component in os.listdir(absolute_path_to_samples):
         wav_file = os.path.join(absolute_path_to_samples, stem_component)
         if os.path.isfile(wav_file):
@@ -75,7 +75,7 @@ def split_to_samples(input_filename, path_to_samples):
             audio_data, sample_rate = librosa.load(wav_file, sr=None, mono=False)
             ## audio data is in the format [[channel L] [channel R]]
             
-            samples = librosa.effects.split(audio_data, top_db=50)
+            samples = librosa.effects.split(audio_data, top_db=20)
             count = 1
             for sample in samples:
                 sample_start = sample[0]
@@ -83,13 +83,18 @@ def split_to_samples(input_filename, path_to_samples):
                 print(sample_start)
                 print(sample_end)
                 librosa_sample_slice = audio_data[:, sample_start:sample_end]
+
+                ## Librosa and Soundfile both store sound in channel x waveform two dimensional arrays,
+                ## but on different axes. This swaps them
                 soundfile_sample_slice = np.swapaxes(librosa_sample_slice, 0, 1)
+                
                 print(soundfile_sample_slice)
                 output_path = ("Sample{0}.wav".format(str(count)))
                 sf.write(output_path, soundfile_sample_slice, sample_rate, "PCM_24")
                 count += 1
             os.chdir("..")
-        os.chdir("..")
+        
+    os.chdir("..")
                 
 ##split_to_stems(input_path, stems_path)
 
