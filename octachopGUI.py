@@ -25,6 +25,7 @@ import sys
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import *
 from PyQt6.QtCore import *
+from PyQt6.QtQuick import *
 
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
@@ -112,7 +113,10 @@ def write_waveform_to_file(waveform, sample_rate, filename):
 class Window(QWidget):
     def __init__(self):
         super().__init__()
+        
         self.setWindowTitle("OctaChop")
+        self.setWindowIcon(QIcon("icons/octopus.png"))
+        
         model = QFileSystemModel()
         model.setRootPath("")
         layout = QGridLayout()
