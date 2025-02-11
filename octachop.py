@@ -52,7 +52,6 @@ def split_to_stems(input_path, output_path):
     ## Handles all audio data automatically, with the disadvantage of outputting sound files and not as arrays
     separator.separate_to_file(input_path, output_path, filename_format = "{instrument}.{codec}")
 
-
 """
 5 stems are:
 bass
@@ -75,13 +74,11 @@ def split_to_samples(drumkit_filename, path_to_samples):
             audio_data, sample_rate = librosa.load(wav_file, sr=None, mono=False)
             ## audio data is in the format [[channel L] [channel R]]
             
-            samples = librosa.effects.split(audio_data, top_db=20)
+            samples = librosa.effects.split(audio_data, top_db=10)
             count = 1
             for sample in samples:
                 sample_start = sample[0]
-                sample_end = sample[1]
-                print(sample_start)
-                print(sample_end)
+                sample_end = sample[1] 
                 librosa_sample_slice = audio_data[:, sample_start:sample_end]
 
                 ## Librosa and Soundfile both store sound in channel x waveform two dimensional arrays,
@@ -95,6 +92,13 @@ def split_to_samples(drumkit_filename, path_to_samples):
             os.chdir("..")
         
     os.chdir("..")
+
+output_path = ("Sample{0} {1}bpm {2}.wav".format(str(count), bpm, key))
+    
+
+def write_waveform_to_file(waveform, sample_rate, filename):
+    soundfile_waveform = np.swapaxes(waveform, 0, 1)
+    sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
                 
 ##split_to_stems(input_path, stems_path)
 
