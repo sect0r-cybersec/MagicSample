@@ -21,7 +21,9 @@ import os
 import sys
 
 ## I chose PyQT as my window manager option for GUI
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+##from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QGridLayout, QLineEdit, QProgressBar, QPushButton, QCheckBox, QSlider, QComboBox, QTreeWidget, QTreeView
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import *
 
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
@@ -106,12 +108,38 @@ def write_waveform_to_file(waveform, sample_rate, filename):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
     sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
 
-app = QApplication([])
-window = QWidget()
-window.setWindowTitle("OctaChop")
+class Window(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("OctaChop")
+        model = QFileSystemModel()
+        model.setRootPath("")
+        input_tree = QTreeView()
+        input_tree.setModel(model)
+        output_tree = QTreeView()
+        output_tree.setModel(model)
+        layout = QGridLayout()
+        layout.addWidget(input_tree, 0, 0, 3, 3)
+        layout.addWidget(output_tree, 0, 3, 3, 3)
+        layout.addWidget(QCheckBox("Split to stems?"), 3, 0)
+        layout.addWidget(QSlider(), 3, 1, 1, 2)
+        layout.addWidget(QLineEdit("Foldername"), 3, 3)
+        layout.addWidget(QComboBox(), 3, 4)
+        layout.addWidget(QPushButton("Start"), 3, 5)
+        layout.addWidget(QProgressBar(), 4, 0, 1, 6)
+        self.setLayout(layout)
+
+def main():
+    app = QApplication([])
+    window = Window()
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
 
 ##split_to_stems(input_path, stems_path)
 
-filename_no_ext = (input_path.split("."))[-1]
+##filename_no_ext = (input_path.split("."))[-1]
 
-split_to_samples("omen", stems_path)
+##split_to_samples("omen", stems_path)
