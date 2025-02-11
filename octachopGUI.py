@@ -131,10 +131,12 @@ class Window(QWidget):
         output_tree.setModel(model)
         layout.addWidget(output_tree, 0, 3, 3, 3)
 
-        input_filepath = QLabel("Input filepath: ")
+        input_filepath = QLineEdit()
+        input_filepath.setPlaceholderText("Input filepath...")
         layout.addWidget(input_filepath, 3, 0, 1, 3)
 
-        output_filepath = QLabel("Output filepath: ")
+        output_filepath = QLineEdit()
+        output_filepath.setPlaceholderText("Output path...")
         layout.addWidget(output_filepath, 3, 3, 1, 3)
 
         stems_checkbox = QCheckBox("Split to stems?")
@@ -143,7 +145,9 @@ class Window(QWidget):
         sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
         layout.addWidget(sensitivity_slider, 4, 1, 1, 2)
 
-        output_foldername = QLineEdit("Output Foldername")
+        output_foldername = QLineEdit()
+        ## Adds greyed out text to show the user to input an output filename
+        output_foldername.setPlaceholderText("Output foldername...")
         layout.addWidget(output_foldername, 4, 3)
 
         output_format = QComboBox()
@@ -173,8 +177,6 @@ class Window(QWidget):
         self.setLayout(layout)
 
 def main():
-    
-    
     app = QApplication([])
     window = Window()
     window.show()
