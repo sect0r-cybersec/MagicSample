@@ -153,12 +153,22 @@ class Window(QWidget):
         layout.addWidget(QPushButton("Start"), 4, 5)
         layout.addWidget(QProgressBar(), 5, 0, 1, 6)
 
-        columns = 5
+        ## This portion of code enables the window to stretch along the x axis,
+        ## as well as the file explorer portion of the y axis
+        filetree_columns = 5
         filetree_rows = 2
-        for i in range(columns):
+        for i in range(filetree_columns):
             layout.setColumnStretch(i, 1)
         for i in range(filetree_rows):
             layout.setRowStretch(i, 1)
+
+        total_columns = 5
+        total_rows = 5
+        minsize = 100
+        for i in range(total_columns):
+            layout.setColumnMinimumWidth(i, minsize)
+        ##for i in range(total_rows):
+            ##layout.setRowMinimumHeight(i, minsize)
         
         self.setLayout(layout)
 
