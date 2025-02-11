@@ -130,8 +130,13 @@ class Window(QWidget):
         sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
         layout.addWidget(sensitivity_slider, 3, 1, 1, 2)
 
-        layout.addWidget(QLineEdit("Foldername"), 3, 3)
-        layout.addWidget(QComboBox(), 3, 4)
+        output_foldername = QLineEdit("Output Foldername")
+        layout.addWidget(output_foldername, 3, 3)
+
+        output_format = QComboBox()
+        output_format.addItem("wav")
+        layout.addWidget(output_format, 3, 4)
+        
         layout.addWidget(QPushButton("Start"), 3, 5)
         layout.addWidget(QProgressBar(), 4, 0, 1, 6)
         self.setLayout(layout)
