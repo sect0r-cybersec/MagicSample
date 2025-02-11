@@ -17,6 +17,12 @@ warnings.filterwarnings("ignore")
 ## Needed to work with directories
 import os
 
+## Needed for PyQT
+import sys
+
+## I chose PyQT as my window manager option for GUI
+from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
 
@@ -93,13 +99,17 @@ def split_to_samples(drumkit_filename, path_to_samples):
         
     os.chdir("..")
 
-output_path = ("Sample{0} {1}bpm {2}.wav".format(str(count), bpm, key))
+##output_path = ("Sample{0} {1}bpm {2}.wav".format(str(count), bpm, key))
     
 
 def write_waveform_to_file(waveform, sample_rate, filename):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
     sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
-                
+
+app = QApplication([])
+window = QWidget()
+window.setWindowTitle("OctaChop")
+
 ##split_to_stems(input_path, stems_path)
 
 filename_no_ext = (input_path.split("."))[-1]
