@@ -120,6 +120,8 @@ class Window(QWidget):
         model = QFileSystemModel()
         model.setRootPath("")
         layout = QGridLayout()
+        layout.fillWidth = True
+        layout.fillHeight = True
         
         input_tree = QTreeView()
         input_tree.setModel(model)
@@ -128,24 +130,41 @@ class Window(QWidget):
         output_tree = QTreeView()
         output_tree.setModel(model)
         layout.addWidget(output_tree, 0, 3, 3, 3)
-        
-        layout.addWidget(QCheckBox("Split to stems?"), 3, 0)
+
+        input_filepath = QLabel("Input filepath: ")
+        layout.addWidget(input_filepath, 3, 0, 1, 3)
+
+        output_filepath = QLabel("Output filepath: ")
+        layout.addWidget(output_filepath, 3, 3, 1, 3)
+
+        stems_checkbox = QCheckBox("Split to stems?")
+        layout.addWidget(stems_checkbox, 4, 0)
 
         sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
-        layout.addWidget(sensitivity_slider, 3, 1, 1, 2)
+        layout.addWidget(sensitivity_slider, 4, 1, 1, 2)
 
         output_foldername = QLineEdit("Output Foldername")
-        layout.addWidget(output_foldername, 3, 3)
+        layout.addWidget(output_foldername, 4, 3)
 
         output_format = QComboBox()
         output_format.addItem("wav")
-        layout.addWidget(output_format, 3, 4)
+        layout.addWidget(output_format, 4, 4)
         
-        layout.addWidget(QPushButton("Start"), 3, 5)
-        layout.addWidget(QProgressBar(), 4, 0, 1, 6)
+        layout.addWidget(QPushButton("Start"), 4, 5)
+        layout.addWidget(QProgressBar(), 5, 0, 1, 6)
+
+        columns = 5
+        filetree_rows = 2
+        for i in range(columns):
+            layout.setColumnStretch(i, 1)
+        for i in range(filetree_rows):
+            layout.setRowStretch(i, 1)
+        
         self.setLayout(layout)
 
 def main():
+    
+    
     app = QApplication([])
     window = Window()
     window.show()
