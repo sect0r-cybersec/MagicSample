@@ -14,11 +14,14 @@ the script with Python 3.10
 import warnings
 warnings.filterwarnings("ignore")
 
+## Needed to work with directories
+import os
+
 ## I don't know what these do, but librosa needs these or it breaks! Dependency nightmare!
 import aifc, sunau
 
 ## Required for manipulating audio files, beat detection
-import librosa.core, librosa.beat
+import librosa.core, librosa.beat, librosa.effects
 
 ## Required to export numpy floating point array objects as sound (.wav files)
 import soundfile as sf
@@ -32,9 +35,9 @@ from spleeter.separator import Separator
 from spleeter.audio.adapter import AudioAdapter
 
 input_path = ("test_data/omen.wav")
-output_path =("temp")
+stems_path =("temp")
 
-audio_data, sample_rate = librosa.load(input_path, sr=None, mono=False)
+audio_data, sample_rate = librosa.load(input_path, sr=None)
 
 def detect_bpm(audio_data, sample_rate):
     bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
@@ -49,4 +52,47 @@ def split_to_stems(input_path, output_path):
     ## Handles all audio data automatically, with the disadvantage of outputting sound files and not as arrays
     separator.separate_to_file(input_path, output_path, filename_format = "{instrument}.{codec}")
 
-split_to_stems(input_path, output_path)
+
+"""
+5 stems are:
+bass
+drums
+other
+piano
+vocals
+"""
+def split_to_samples(input_filename, path_to_samples):
+    absolute_path_to_samples = os.path.abspath(path_to_samples)
+    os.mkdir(input_filename)
+    os.chdir(input_filename)
+    for stem_component in os.listdir(absolute_path_to_samples):
+        wav_file = os.path.join(absolute_path_to_samples, stem_component)
+        if os.path.isfile(wav_file):
+            component = (stem_component.split("."))[0]
+            os.mkdir(component)
+            os.chdir(component)
+            
+            audio_data, sample_rate = librosa.load(wav_file, sr=None, mono=False)
+            ## audio data is in the format [[channel L] [channel R]]
+            
+            samples = librosa.effects.split(audio_data, top_db=50)
+            count = 1
+            for sample in samples:
+                sample_start = sample[0]
+                sample_end = sample[1]
+                print(sample_start)
+                print(sample_end)
+                librosa_sample_slice = audio_data[:, sample_start:sample_end]
+                soundfile_sample_slice = np.swapaxes(librosa_sample_slice, 0, 1)
+                print(soundfile_sample_slice)
+                output_path = ("Sample{0}.wav".format(str(count)))
+                sf.write(output_path, soundfile_sample_slice, sample_rate, "PCM_24")
+                count += 1
+            os.chdir("..")
+        os.chdir("..")
+                
+##split_to_stems(input_path, stems_path)
+
+filename_no_ext = (input_path.split("."))[-1]
+
+split_to_samples("omen", stems_path)
