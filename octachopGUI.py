@@ -110,25 +110,37 @@ def write_waveform_to_file(waveform, sample_rate, filename):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
     sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
 
+def set_lineinp_filepath(tree):
+    index = tree.selectedIndexes()[0]
+    path = tree.model().fileInfo(index)
+    absolute_path = (path.absoluteFilePath())
+    print(absolute_path)
+    
+
 class Window(QWidget):
     def __init__(self):
         super().__init__()
         
         self.setWindowTitle("OctaChop")
         self.setWindowIcon(QIcon("icons/octopus.png"))
-        
-        model = QFileSystemModel()
-        model.setRootPath("")
+
         layout = QGridLayout()
         layout.fillWidth = True
         layout.fillHeight = True
         
+        input_model = QFileSystemModel()
+        input_model.setRootPath("")
+
         input_tree = QTreeView()
-        input_tree.setModel(model)
+        input_tree.setModel(input_model)
+        input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree))
         layout.addWidget(input_tree, 0, 0, 3, 3)
-                
+
+        output_model = QFileSystemModel()
+        output_model.setRootPath("")
+        
         output_tree = QTreeView()
-        output_tree.setModel(model)
+        output_tree.setModel(output_model)
         layout.addWidget(output_tree, 0, 3, 3, 3)
 
         input_filepath = QLineEdit()
@@ -151,7 +163,9 @@ class Window(QWidget):
         layout.addWidget(output_foldername, 4, 3)
 
         output_format = QComboBox()
-        output_format.addItem("wav")
+        output_format.addItem(".wav")
+        output_format.addItem(".flac")
+        output_format.addItem(".ogg")
         layout.addWidget(output_format, 4, 4)
         
         layout.addWidget(QPushButton("Start"), 4, 5)
