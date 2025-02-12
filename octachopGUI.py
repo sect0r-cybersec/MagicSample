@@ -110,11 +110,11 @@ def write_waveform_to_file(waveform, sample_rate, filename):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
     sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
 
-def set_lineinp_filepath(tree):
+def set_lineinp_filepath(tree, text_input):
     index = tree.selectedIndexes()[0]
     path = tree.model().fileInfo(index)
     absolute_path = (path.absoluteFilePath())
-    print(absolute_path)
+    text_input.setText(absolute_path)
     
 
 class Window(QWidget):
@@ -127,21 +127,6 @@ class Window(QWidget):
         layout = QGridLayout()
         layout.fillWidth = True
         layout.fillHeight = True
-        
-        input_model = QFileSystemModel()
-        input_model.setRootPath("")
-
-        input_tree = QTreeView()
-        input_tree.setModel(input_model)
-        input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree))
-        layout.addWidget(input_tree, 0, 0, 3, 3)
-
-        output_model = QFileSystemModel()
-        output_model.setRootPath("")
-        
-        output_tree = QTreeView()
-        output_tree.setModel(output_model)
-        layout.addWidget(output_tree, 0, 3, 3, 3)
 
         input_filepath = QLineEdit()
         input_filepath.setPlaceholderText("Input filepath...")
@@ -150,6 +135,22 @@ class Window(QWidget):
         output_filepath = QLineEdit()
         output_filepath.setPlaceholderText("Output path...")
         layout.addWidget(output_filepath, 3, 3, 1, 3)
+        
+        input_model = QFileSystemModel()
+        input_model.setRootPath("")
+
+        input_tree = QTreeView()
+        input_tree.setModel(input_model)
+        input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree, input_filepath))
+        layout.addWidget(input_tree, 0, 0, 3, 3)
+
+        output_model = QFileSystemModel()
+        output_model.setRootPath("")
+        
+        output_tree = QTreeView()
+        output_tree.setModel(output_model)
+        output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
+        layout.addWidget(output_tree, 0, 3, 3, 3)
 
         stems_checkbox = QCheckBox("Split to stems?")
         layout.addWidget(stems_checkbox, 4, 0)
