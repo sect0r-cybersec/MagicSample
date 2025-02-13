@@ -177,9 +177,8 @@ def run_slicer(split_to_stem, input_filepath, output_filepath, output_foldername
     out_filepath = output_filepath.text()
     out_foldername = output_filepath.text()
 
-    time.sleep(2)
-    ##if split_to_stem.isChecked() == 2: ## If user wants to split track to stems...
-     ##   print(split_to_stems("test_data/omen.wav"))
+    if split_to_stem.isChecked() == True: ## If user wants to split track to stems...
+        print(split_to_stems(inp_filepath))
         
     disableInputs(False, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
     
