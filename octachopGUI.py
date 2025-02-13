@@ -14,6 +14,9 @@ the script with Python 3.10
 import warnings
 warnings.filterwarnings("ignore")
 
+## For testing purposes
+import time
+
 ## Needed to work with directories
 import os
 
@@ -54,13 +57,41 @@ def detect_bpm(audio_data, sample_rate):
     bpm = (np.round(bpm_numpy_array).astype(int))[0]
     return bpm
 
-def split_to_stems(input_path, output_path):
+def split_to_stem_files(input_path, output_path):
     ## Instantiate 5 stem separator object
     ## Multiprocessing must be switched off else it will not work with windows
     separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
 
     ## Handles all audio data automatically, with the disadvantage of outputting sound files and not as arrays
     separator.separate_to_file(input_path, output_path, filename_format = "{instrument}.{codec}")
+
+def split_to_stems(path):
+    ## Instantiates 5 stem spleeter separator object
+    ## Multiprocessing is disabled, otherwise windows has problems
+    separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
+    
+    ## Creates audio loader object
+    audio_loader = AudioAdapter.default()
+    
+    ## Passes sound file path to the audio loader, recieves numpy waveform and sample rate
+    ## Waveform is in format (sample, channels) [[1channelL, 1channelR] [2channelL, 2channelLR]] etc...
+    waveform, sample_rate = audio_loader.load(path)
+    
+    ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
+    stems_dictionary = separator.separate(waveform)
+    
+    ## Creates list of keys of stems_dictionary
+    stem_names = stems_dictionary.keys()
+
+    output_dict = {}
+    
+    for stem_name in stem_names:
+        stem_waveform = stems_dictionary.get(stem_name)
+        swapped_axis = np.swapaxes(stem_waveform, 0, 1)
+        output_dict[stem_name] = swapped_axis
+
+    ## Return stem waveform dictionary with axes swapped so it can be manipulated by librosa
+    return output_dict
 
 """
 5 stems are:
@@ -106,16 +137,53 @@ def split_to_samples(drumkit_filename, path_to_samples):
 ##output_path = ("Sample{0} {1}bpm {2}.wav".format(str(count), bpm, key))
     
 
-def write_waveform_to_file(waveform, sample_rate, filename):
+def write_waveform_to_file(waveform, sample_rate, name, extension):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
-    sf.write(filename, soundfile_waveform, sample_rate, "PCM_24")
+    if extension == ".wav":
+        PCM = "PCM_24"
+    else:
+        PCM = None
+
+    ## Concatenate filename and extension
+    filename = name + extension
+    sf.write(filename, soundfile_waveform, sample_rate, PCM)
 
 def set_lineinp_filepath(tree, text_input):
     index = tree.selectedIndexes()[0]
     path = tree.model().fileInfo(index)
     absolute_path = (path.absoluteFilePath())
     text_input.setText(absolute_path)
+
+def disableInputs(boolean, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
+    ##split_to_stem.setEnabled(not boolean)
+    ##split_to_stem.setReadOnly(boolean)
+    """
+    input_filepath.setReadOnly(boolean)
+    ouput_filepath.setReadOnly(boolean)
+    output_foldername.setReadOnly(boolean)
+    sensitivity.setReadOnly(boolean)
+    file_format.setReadOnly(boolean)
+    button.setEnabled(not boolean)
+    """
     
+def run_slicer(split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
+
+    ## Set inputs as read only
+    """
+    disableInputs(True, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
+
+    inp_filepath = input_filepath.text()
+    out_filepath = output_filepath.text()
+    out_foldername = output_filepath.text()
+    """
+    time.sleep(2)
+    print("yay")
+    """
+    if split_to_stem.isChecked() == 2: ## If user wants to split track to stems...
+        print(split_to_stems("test_data/omen.wav"))
+        
+    disableInputs(False, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
+    """
 
 class Window(QWidget):
     def __init__(self):
@@ -141,6 +209,7 @@ class Window(QWidget):
 
         input_tree = QTreeView()
         input_tree.setModel(input_model)
+        input_tree.setAnimated(True)
         input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree, input_filepath))
         layout.addWidget(input_tree, 0, 0, 3, 3)
 
@@ -149,6 +218,7 @@ class Window(QWidget):
         
         output_tree = QTreeView()
         output_tree.setModel(output_model)
+        output_tree.setAnimated(True)
         output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
         layout.addWidget(output_tree, 0, 3, 3, 3)
 
@@ -168,8 +238,14 @@ class Window(QWidget):
         output_format.addItem(".flac")
         output_format.addItem(".ogg")
         layout.addWidget(output_format, 4, 4)
+
+        start_button = QPushButton("Start")
         
-        layout.addWidget(QPushButton("Start"), 4, 5)
+        ## Links access to all other elements of the GUI
+        start_button.clicked.connect(lambda: run_slicer(stems_checkbox, input_filepath, output_filepath, output_foldername, sensitivity_slider, output_format, start_button))
+        
+        layout.addWidget(start_button, 4, 5)
+        
         layout.addWidget(QProgressBar(), 5, 0, 1, 6)
 
         ## This portion of code enables the window to stretch along the x axis,
@@ -192,15 +268,27 @@ class Window(QWidget):
         self.setLayout(layout)
 
 def main():
+
+    ## Prints errors to command line
+    sys._excepthook = sys.excepthook 
+    def exception_hook(exctype, value, traceback):
+        print(exctype, value, traceback)
+        sys._excepthook(exctype, value, traceback) 
+        sys.exit(1) 
+    sys.excepthook = exception_hook
+
+    
     app = QApplication([])
     window = Window()
     window.show()
     sys.exit(app.exec())
+    
 
 if __name__ == "__main__":
     main()
 
-##split_to_stems(input_path, stems_path)
+
+##print(split_to_stems(input_path))
 
 ##filename_no_ext = (input_path.split("."))[-1]
 
