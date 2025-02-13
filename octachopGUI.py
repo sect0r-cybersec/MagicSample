@@ -196,11 +196,11 @@ class Window(QWidget):
 
         input_filepath = QLineEdit()
         input_filepath.setPlaceholderText("Input filepath...")
-        layout.addWidget(input_filepath, 3, 0, 1, 3)
+        layout.addWidget(input_filepath, 6, 0, 1, 6)
 
         output_filepath = QLineEdit()
         output_filepath.setPlaceholderText("Output path...")
-        layout.addWidget(output_filepath, 3, 3, 1, 3)
+        layout.addWidget(output_filepath, 6, 6, 1, 6)
         
         input_model = QFileSystemModel()
         input_model.setRootPath("")
@@ -209,7 +209,7 @@ class Window(QWidget):
         input_tree.setModel(input_model)
         input_tree.setAnimated(True)
         input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree, input_filepath))
-        layout.addWidget(input_tree, 0, 0, 3, 3)
+        layout.addWidget(input_tree, 0, 0, 6, 6)
 
         output_model = QFileSystemModel()
         output_model.setRootPath("")
@@ -218,50 +218,60 @@ class Window(QWidget):
         output_tree.setModel(output_model)
         output_tree.setAnimated(True)
         output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
-        layout.addWidget(output_tree, 0, 3, 3, 3)
+        layout.addWidget(output_tree, 0, 6, 6, 6)
 
         stems_checkbox = QCheckBox("Split to stems?")
-        layout.addWidget(stems_checkbox, 4, 0)
+        layout.addWidget(stems_checkbox, 7, 5)
+
+        bpm_checkbox = QCheckBox("Detect bpm?")
+        layout.addWidget(bpm_checkbox, 7, 6)
+
+        pitch_checkbox = QCheckBox("Detect pitch?")
+        layout.addWidget(pitch_checkbox, 7, 7)
+
+        sensitivity_slider_label = QLabel("Sensitivity")
+        layout.addWidget(sensitivity_slider_label, 7, 0)
 
         sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
-        layout.addWidget(sensitivity_slider, 4, 1, 1, 2)
+        layout.addWidget(sensitivity_slider, 7, 1, 1, 4)
 
         output_foldername = QLineEdit()
         ## Adds greyed out text to show the user to input an output filename
         output_foldername.setPlaceholderText("Output foldername...")
-        layout.addWidget(output_foldername, 4, 3)
+        layout.addWidget(output_foldername, 7, 8, 1, 2)
 
         output_format = QComboBox()
         output_format.addItem(".wav")
         output_format.addItem(".flac")
         output_format.addItem(".ogg")
-        layout.addWidget(output_format, 4, 4)
+        layout.addWidget(output_format, 7, 10)
 
         start_button = QPushButton("Start")
         
         ## Links access to all other elements of the GUI
         start_button.clicked.connect(lambda: run_slicer(stems_checkbox, input_filepath, output_filepath, output_foldername, sensitivity_slider, output_format, start_button))
         
-        layout.addWidget(start_button, 4, 5)
+        layout.addWidget(start_button, 7, 11)
         
-        layout.addWidget(QProgressBar(), 5, 0, 1, 6)
+        layout.addWidget(QProgressBar(), 8, 0, 1, 12)
 
         ## This portion of code enables the window to stretch along the x axis,
         ## as well as the file explorer portion of the y axis
-        filetree_columns = 5
-        filetree_rows = 2
+        filetree_columns = 11
+        filetree_rows = 5
         for i in range(filetree_columns):
             layout.setColumnStretch(i, 1)
         for i in range(filetree_rows):
             layout.setRowStretch(i, 1)
 
-        total_columns = 5
-        total_rows = 5
-        minsize = 100
+        total_columns = 11
+        total_rows = 8
+        min_width = 75
+        min_height = 25
         for i in range(total_columns):
-            layout.setColumnMinimumWidth(i, minsize)
-        ##for i in range(total_rows):
-            ##layout.setRowMinimumHeight(i, minsize)
+            layout.setColumnMinimumWidth(i, min_width)
+        for i in range(total_rows):
+            layout.setRowMinimumHeight(i, min_height)
         
         self.setLayout(layout)
 
