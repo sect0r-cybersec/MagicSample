@@ -154,24 +154,26 @@ def set_lineinp_filepath(tree, text_input):
     absolute_path = (path.absoluteFilePath())
     text_input.setText(absolute_path)
 
-def disableInputs(boolean, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
+def disableInputs(boolean, split_to_stem, bpm_checkbox, pitch_checkbox, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
 
     split_to_stem.setEnabled(not boolean)
-    ##split_to_stem.setReadOnly(boolean)
+    bpm_checkbox.setEnabled(not boolean)
+    pitch_checkbox.setEnabled(not boolean)
     
     input_filepath.setReadOnly(boolean)
     output_filepath.setReadOnly(boolean)
     output_foldername.setReadOnly(boolean)
+    
     sensitivity.setEnabled(not boolean)
     file_format.setEnabled(not boolean)
     button.setEnabled(not boolean)
     
     
-def run_slicer(split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
+def run_slicer(split_to_stem, bpm_checkbox, pitch_checkbox, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
 
-    ## Set inputs as read only
+    ## Disable inputs
     
-    disableInputs(True, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
+    disableInputs(True, split_to_stem, bpm_checkbox, pitch_checkbox, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
 
     inp_filepath = input_filepath.text()
     out_filepath = output_filepath.text()
@@ -179,8 +181,10 @@ def run_slicer(split_to_stem, input_filepath, output_filepath, output_foldername
 
     if split_to_stem.isChecked() == True: ## If user wants to split track to stems...
         print(split_to_stems(inp_filepath))
+
+    ## Enable inputs again
         
-    disableInputs(False, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
+    disableInputs(False, split_to_stem, bpm_checkbox, pitch_checkbox, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
     
 
 class Window(QWidget):
@@ -249,7 +253,7 @@ class Window(QWidget):
         start_button = QPushButton("Start")
         
         ## Links access to all other elements of the GUI
-        start_button.clicked.connect(lambda: run_slicer(stems_checkbox, input_filepath, output_filepath, output_foldername, sensitivity_slider, output_format, start_button))
+        start_button.clicked.connect(lambda: run_slicer(stems_checkbox, bpm_checkbox, pitch_checkbox, input_filepath, output_filepath, output_foldername, sensitivity_slider, output_format, start_button))
         
         layout.addWidget(start_button, 7, 11)
         
@@ -266,8 +270,8 @@ class Window(QWidget):
 
         total_columns = 11
         total_rows = 8
-        min_width = 75
-        min_height = 25
+        min_width = 80
+        min_height = 40
         for i in range(total_columns):
             layout.setColumnMinimumWidth(i, min_width)
         for i in range(total_rows):
