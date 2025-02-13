@@ -155,35 +155,34 @@ def set_lineinp_filepath(tree, text_input):
     text_input.setText(absolute_path)
 
 def disableInputs(boolean, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
-    ##split_to_stem.setEnabled(not boolean)
+
+    split_to_stem.setEnabled(not boolean)
     ##split_to_stem.setReadOnly(boolean)
-    """
+    
     input_filepath.setReadOnly(boolean)
-    ouput_filepath.setReadOnly(boolean)
+    output_filepath.setReadOnly(boolean)
     output_foldername.setReadOnly(boolean)
-    sensitivity.setReadOnly(boolean)
-    file_format.setReadOnly(boolean)
+    sensitivity.setEnabled(not boolean)
+    file_format.setEnabled(not boolean)
     button.setEnabled(not boolean)
-    """
+    
     
 def run_slicer(split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button):
 
     ## Set inputs as read only
-    """
+    
     disableInputs(True, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
 
     inp_filepath = input_filepath.text()
     out_filepath = output_filepath.text()
     out_foldername = output_filepath.text()
-    """
+
     time.sleep(2)
-    print("yay")
-    """
-    if split_to_stem.isChecked() == 2: ## If user wants to split track to stems...
-        print(split_to_stems("test_data/omen.wav"))
+    ##if split_to_stem.isChecked() == 2: ## If user wants to split track to stems...
+     ##   print(split_to_stems("test_data/omen.wav"))
         
     disableInputs(False, split_to_stem, input_filepath, output_filepath, output_foldername, sensitivity, file_format, button)
-    """
+    
 
 class Window(QWidget):
     def __init__(self):
@@ -269,7 +268,7 @@ class Window(QWidget):
 
 def main():
 
-    ## Prints errors to command line
+    ## Prints errors to command line, comment out when not in use
     sys._excepthook = sys.excepthook 
     def exception_hook(exctype, value, traceback):
         print(exctype, value, traceback)
