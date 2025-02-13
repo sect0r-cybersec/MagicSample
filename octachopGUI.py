@@ -7,7 +7,7 @@ Note:
 The current version of this script only works with Python 3.10.
 
 This is to do with a dependency issue within spleeter. Until that is fixed, please run
-the script with Python 3.10 
+the script with Python 3.10
 """
 
 ## Ignores verbose TensorFlow warnings
@@ -69,22 +69,22 @@ def split_to_stems(path):
     ## Instantiates 5 stem spleeter separator object
     ## Multiprocessing is disabled, otherwise windows has problems
     separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
-    
+
     ## Creates audio loader object
     audio_loader = AudioAdapter.default()
-    
+
     ## Passes sound file path to the audio loader, recieves numpy waveform and sample rate
     ## Waveform is in format (sample, channels) [[1channelL, 1channelR] [2channelL, 2channelLR]] etc...
     waveform, sample_rate = audio_loader.load(path)
-    
+
     ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
     stems_dictionary = separator.separate(waveform)
-    
+
     ## Creates list of keys of stems_dictionary
     stem_names = stems_dictionary.keys()
 
     output_dict = {}
-    
+
     for stem_name in stem_names:
         stem_waveform = stems_dictionary.get(stem_name)
         swapped_axis = np.swapaxes(stem_waveform, 0, 1)
@@ -111,31 +111,28 @@ def split_to_samples(drumkit_filename, path_to_samples):
             component = (stem_component.split("."))[0]
             os.mkdir(component)
             os.chdir(component)
-            
+
             audio_data, sample_rate = librosa.load(wav_file, sr=None, mono=False)
             ## audio data is in the format [[channel L] [channel R]]
-            
+
             samples = librosa.effects.split(audio_data, top_db=10)
             count = 1
             for sample in samples:
                 sample_start = sample[0]
-                sample_end = sample[1] 
+                sample_end = sample[1]
                 librosa_sample_slice = audio_data[:, sample_start:sample_end]
 
                 ## Librosa and Soundfile both store sound in channel x waveform two dimensional arrays,
                 ## but on different axes. This swaps them
                 soundfile_sample_slice = np.swapaxes(librosa_sample_slice, 0, 1)
-                
+
                 print(soundfile_sample_slice)
                 output_path = ("Sample{0}.wav".format(str(count)))
                 sf.write(output_path, soundfile_sample_slice, sample_rate, "PCM_24")
                 count += 1
             os.chdir("..")
-        
-    os.chdir("..")
 
-##output_path = ("Sample{0} {1}bpm {2}.wav".format(str(count), bpm, key))
-    
+    os.chdir("..")
 
 def write_waveform_to_file(waveform, sample_rate, name, extension):
     soundfile_waveform = np.swapaxes(waveform, 0, 1)
@@ -154,26 +151,24 @@ def set_lineinp_filepath(tree, text_input):
     absolute_path = (path.absoluteFilePath())
     text_input.setText(absolute_path)
 
-def disableInputs(boolean, window):
-
+def disableInputs(window, boolean):
     window.stems_checkbox.setEnabled(not boolean)
     window.bpm_checkbox.setEnabled(not boolean)
     window.pitch_checkbox.setEnabled(not boolean)
-    
+
     window.input_filepath.setReadOnly(boolean)
     window.output_filepath.setReadOnly(boolean)
     window.output_foldername.setReadOnly(boolean)
-    
-    window.sensitivity_slider.setEnabled(not boolean)
-    window.file_format.setEnabled(not boolean)
-    window.start_button.setEnabled(not boolean)
-    
-    
-def run_slicer(window):
 
+    window.sensitivity_slider.setEnabled(not boolean)
+    window.output_format.setEnabled(not boolean)
+    window.start_button.setEnabled(not boolean)
+
+
+def run_slicer(window):
     ## Disable inputs
-    
-    disableInputs(True, window)
+
+    disableInputs(window, True)
 
     input_filepath = window.input_filepath.text()
     output_filepath = window.output_filepath.text()
@@ -183,14 +178,14 @@ def run_slicer(window):
         print(split_to_stems(input_filepath))
 
     ## Enable inputs again
-        
-    disableInputs(False, window)
-    
+
+    disableInputs(window, False)
+
 
 class Window(QWidget):
     def __init__(self):
         super().__init__()
-        
+
         self.setWindowTitle("OctaChop")
         self.setWindowIcon(QIcon("icons/octopus.png"))
 
@@ -198,66 +193,67 @@ class Window(QWidget):
         layout.fillWidth = True
         layout.fillHeight = True
 
-        input_filepath = QLineEdit()
-        input_filepath.setPlaceholderText("Input filepath...")
-        layout.addWidget(input_filepath, 6, 0, 1, 6)
+        self.input_filepath = QLineEdit()
+        self.input_filepath.setPlaceholderText("Input filepath...")
+        layout.addWidget(self.input_filepath, 6, 0, 1, 6)
 
-        output_filepath = QLineEdit()
-        output_filepath.setPlaceholderText("Output path...")
-        layout.addWidget(output_filepath, 6, 6, 1, 6)
-        
-        input_model = QFileSystemModel()
-        input_model.setRootPath("")
+        self.output_filepath = QLineEdit()
+        self.output_filepath.setPlaceholderText("Output path...")
+        layout.addWidget(self.output_filepath, 6, 6, 1, 6)
 
-        input_tree = QTreeView()
-        input_tree.setModel(input_model)
-        input_tree.setAnimated(True)
-        input_tree.clicked.connect(lambda: set_lineinp_filepath(input_tree, input_filepath))
-        layout.addWidget(input_tree, 0, 0, 6, 6)
+        self.input_model = QFileSystemModel()
+        self.input_model.setRootPath("")
 
-        output_model = QFileSystemModel()
-        output_model.setRootPath("")
-        
-        output_tree = QTreeView()
-        output_tree.setModel(output_model)
-        output_tree.setAnimated(True)
-        output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
-        layout.addWidget(output_tree, 0, 6, 6, 6)
+        self.input_tree = QTreeView()
+        self.input_tree.setModel(self.input_model)
+        self.input_tree.setAnimated(True)
+        self.input_tree.clicked.connect(lambda: set_lineinp_filepath(self.input_tree, self.input_filepath))
+        layout.addWidget(self.input_tree, 0, 0, 6, 6)
 
-        stems_checkbox = QCheckBox("Split to stems?")
-        layout.addWidget(stems_checkbox, 7, 5)
+        self.output_model = QFileSystemModel()
+        self.output_model.setRootPath("")
 
-        bpm_checkbox = QCheckBox("Detect bpm?")
-        layout.addWidget(bpm_checkbox, 7, 6)
+        self.output_tree = QTreeView()
+        self.output_tree.setModel(self.output_model)
+        self.output_tree.setAnimated(True)
+        self.output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
+        layout.addWidget(self.output_tree, 0, 6, 6, 6)
 
-        pitch_checkbox = QCheckBox("Detect pitch?")
-        layout.addWidget(pitch_checkbox, 7, 7)
+        self.stems_checkbox = QCheckBox("Split to stems?")
+        layout.addWidget(self.stems_checkbox, 7, 5)
 
-        sensitivity_slider_label = QLabel("Sensitivity")
-        layout.addWidget(sensitivity_slider_label, 7, 0)
+        self.bpm_checkbox = QCheckBox("Detect bpm?")
+        layout.addWidget(self.bpm_checkbox, 7, 6)
 
-        sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
-        layout.addWidget(sensitivity_slider, 7, 1, 1, 4)
+        self.pitch_checkbox = QCheckBox("Detect pitch?")
+        layout.addWidget(self.pitch_checkbox, 7, 7)
 
-        output_foldername = QLineEdit()
+        self.sensitivity_slider_label = QLabel("Sensitivity")
+        layout.addWidget(self.sensitivity_slider_label, 7, 0)
+
+        self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
+        layout.addWidget(self.sensitivity_slider, 7, 1, 1, 4)
+
+        self.output_foldername = QLineEdit()
         ## Adds greyed out text to show the user to input an output filename
-        output_foldername.setPlaceholderText("Output foldername...")
-        layout.addWidget(output_foldername, 7, 8, 1, 2)
+        self.output_foldername.setPlaceholderText("Output foldername...")
+        layout.addWidget(self.output_foldername, 7, 8, 1, 2)
 
-        output_format = QComboBox()
-        output_format.addItem(".wav")
-        output_format.addItem(".flac")
-        output_format.addItem(".ogg")
-        layout.addWidget(output_format, 7, 10)
+        self.output_format = QComboBox()
+        self.output_format.addItem(".wav")
+        self.output_format.addItem(".flac")
+        self.output_format.addItem(".ogg")
+        layout.addWidget(self.output_format, 7, 10)
 
-        start_button = QPushButton("Start")
-        
+        self.start_button = QPushButton("Start")
+
         ## Links access to all other elements of the GUI
-        start_button.clicked.connect(lambda: run_slicer(self))
-        
-        layout.addWidget(start_button, 7, 11)
-        
-        layout.addWidget(QProgressBar(), 8, 0, 1, 12)
+        self.start_button.clicked.connect(lambda: run_slicer(self))
+
+        layout.addWidget(self.start_button, 7, 11)
+
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar, 8, 0, 1, 12)
 
         ## This portion of code enables the window to stretch along the x axis,
         ## as well as the file explorer portion of the y axis
@@ -276,32 +272,25 @@ class Window(QWidget):
             layout.setColumnMinimumWidth(i, min_width)
         for i in range(total_rows):
             layout.setRowMinimumHeight(i, min_height)
-        
+
         self.setLayout(layout)
 
 def main():
 
     ## Prints errors to command line, comment out when not in use
-    sys._excepthook = sys.excepthook 
+    sys._excepthook = sys.excepthook
     def exception_hook(exctype, value, traceback):
         print(exctype, value, traceback)
-        sys._excepthook(exctype, value, traceback) 
-        sys.exit(1) 
+        sys._excepthook(exctype, value, traceback)
+        sys.exit(1)
     sys.excepthook = exception_hook
 
-    
+
     app = QApplication([])
     window = Window()
     window.show()
     sys.exit(app.exec())
-    
+
 
 if __name__ == "__main__":
     main()
-
-
-##print(split_to_stems(input_path))
-
-##filename_no_ext = (input_path.split("."))[-1]
-
-##split_to_samples("omen", stems_path)
