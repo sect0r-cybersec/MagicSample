@@ -50,48 +50,35 @@ from spleeter.audio.adapter import AudioAdapter
 input_path = ("test_data/omen.wav")
 stems_path =("temp")
 
-audio_data, sample_rate = librosa.load(input_path, sr=None)
-
 def detect_bpm(audio_data, sample_rate):
     bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
     bpm = (np.round(bpm_numpy_array).astype(int))[0]
     return bpm
 
-def split_to_stem_files(input_path, output_path):
-    ## Instantiate 5 stem separator object
-    ## Multiprocessing must be switched off else it will not work with windows
-    separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
+def invert_numpy_array(waveform_dict):
+    invert_dict = {}
+    dict_keys = waveform_dict.keys()
+    for key in dict_keys:
+        waveform = waveform_dict.get(key)
+        swapped_axis = np.swapaxes(waveform, 0, 1)
+        invert_dict[key] = swapped_axis
+    return invert_dict
 
-    ## Handles all audio data automatically, with the disadvantage of outputting sound files and not as arrays
-    separator.separate_to_file(input_path, output_path, filename_format = "{instrument}.{codec}")
-
-def split_to_stems(path):
+def split_to_stems(waveform, sample_rate):
+    
     ## Instantiates 5 stem spleeter separator object
     ## Multiprocessing is disabled, otherwise windows has problems
     separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
 
-    ## Creates audio loader object
-    audio_loader = AudioAdapter.default()
-
-    ## Passes sound file path to the audio loader, recieves numpy waveform and sample rate
-    ## Waveform is in format (sample, channels) [[1channelL, 1channelR] [2channelL, 2channelLR]] etc...
-    waveform, sample_rate = audio_loader.load(path)
-
+    waveform = invert_numpy_array(waveform)
+    
     ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
     stems_dictionary = separator.separate(waveform)
 
-    ## Creates list of keys of stems_dictionary
-    stem_names = stems_dictionary.keys()
-
-    output_dict = {}
-
-    for stem_name in stem_names:
-        stem_waveform = stems_dictionary.get(stem_name)
-        swapped_axis = np.swapaxes(stem_waveform, 0, 1)
-        output_dict[stem_name] = swapped_axis
+    stems_dictionary = invert_numpy_array(stems_dictionary)
 
     ## Return stem waveform dictionary with axes swapped so it can be manipulated by librosa
-    return output_dict
+    return stems_dictionary
 
 """
 5 stems are:
@@ -164,18 +151,48 @@ def disableInputs(window, boolean):
     window.output_format.setEnabled(not boolean)
     window.start_button.setEnabled(not boolean)
 
+def validate_file_ext(path):
+
+    valid_filetypes = ("wav", "flac", "ogg")
+
+    for extension in valid_filetypes:
+        file_ext = ((path.split("."))[-1]).lower()
+        if file_ext == extension: ## If file extension is equal to one as specified in tuple...
+            return os.path.abspath(file)) ## Return absolute filepath of file
 
 def run_slicer(window):
-    ## Disable inputs
 
+    input_files = []
+    
+    ## Disable inputs
     disableInputs(window, True)
 
     input_filepath = window.input_filepath.text()
     output_filepath = window.output_filepath.text()
     output_foldername = window.output_foldername.text()
 
-    if window.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
-        print(split_to_stems(input_filepath))
+    if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
+        files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
+        for file in files: ## For each file...
+            input_files.append(validate_file_ext(input_filepath)) ## Validate it's extension then add to list of filepaths
+                    
+    elif os.path.isfile(input_filepath): ## Elif user selected single file...
+        input_files.append(validate_file_ext(input_filepath)) ## Validate single file then add to list of filepaths
+
+    for file in input_files:
+        
+        waveform, sample_rate = librosa.load(file, sr=None)
+
+        if window.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
+            bpm = detect_bpm(waveform, sample_rate)
+        else:
+            bpm = None
+
+        if window.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
+            stems = split_to_stems(input_filepath)
+            stem_name = stems.keys()
+            for key in stem_name:
+                
 
     ## Enable inputs again
 
