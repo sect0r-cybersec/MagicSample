@@ -50,36 +50,6 @@ from spleeter.audio.adapter import AudioAdapter
 input_path = ("test_data/omen.wav")
 stems_path =("temp")
 
-def detect_bpm(audio_data, sample_rate):
-    bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
-    bpm = (np.round(bpm_numpy_array).astype(int))[0]
-    return bpm
-
-def invert_numpy_array(waveform_dict):
-    invert_dict = {}
-    dict_keys = waveform_dict.keys()
-    for key in dict_keys:
-        waveform = waveform_dict.get(key)
-        swapped_axis = np.swapaxes(waveform, 0, 1)
-        invert_dict[key] = swapped_axis
-    return invert_dict
-
-def split_to_stems(waveform, sample_rate):
-    
-    ## Instantiates 5 stem spleeter separator object
-    ## Multiprocessing is disabled, otherwise windows has problems
-    separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
-
-    waveform = invert_numpy_array(waveform)
-    
-    ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
-    stems_dictionary = separator.separate(waveform)
-
-    stems_dictionary = invert_numpy_array(stems_dictionary)
-
-    ## Return stem waveform dictionary with axes swapped so it can be manipulated by librosa
-    return stems_dictionary
-
 """
 5 stems are:
 bass
@@ -121,87 +91,115 @@ def split_to_samples(drumkit_filename, path_to_samples):
 
     os.chdir("..")
 
-def write_waveform_to_file(waveform, sample_rate, name, extension):
-    soundfile_waveform = np.swapaxes(waveform, 0, 1)
-    if extension == ".wav":
-        PCM = "PCM_24"
-    else:
-        PCM = None
-
-    ## Concatenate filename and extension
-    filename = name + extension
-    sf.write(filename, soundfile_waveform, sample_rate, PCM)
-
-def set_lineinp_filepath(tree, text_input):
-    index = tree.selectedIndexes()[0]
-    path = tree.model().fileInfo(index)
-    absolute_path = (path.absoluteFilePath())
-    text_input.setText(absolute_path)
-
-def disableInputs(window, boolean):
-    window.stems_checkbox.setEnabled(not boolean)
-    window.bpm_checkbox.setEnabled(not boolean)
-    window.pitch_checkbox.setEnabled(not boolean)
-
-    window.input_filepath.setReadOnly(boolean)
-    window.output_filepath.setReadOnly(boolean)
-    window.output_foldername.setReadOnly(boolean)
-
-    window.sensitivity_slider.setEnabled(not boolean)
-    window.output_format.setEnabled(not boolean)
-    window.start_button.setEnabled(not boolean)
-
-def validate_file_ext(path):
-
-    valid_filetypes = ("wav", "flac", "ogg")
-
-    for extension in valid_filetypes:
-        file_ext = ((path.split("."))[-1]).lower()
-        if file_ext == extension: ## If file extension is equal to one as specified in tuple...
-            return os.path.abspath(file)) ## Return absolute filepath of file
-
-def run_slicer(window):
-
-    input_files = []
-    
-    ## Disable inputs
-    disableInputs(window, True)
-
-    input_filepath = window.input_filepath.text()
-    output_filepath = window.output_filepath.text()
-    output_foldername = window.output_foldername.text()
-
-    if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
-        files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
-        for file in files: ## For each file...
-            input_files.append(validate_file_ext(input_filepath)) ## Validate it's extension then add to list of filepaths
-                    
-    elif os.path.isfile(input_filepath): ## Elif user selected single file...
-        input_files.append(validate_file_ext(input_filepath)) ## Validate single file then add to list of filepaths
-
-    for file in input_files:
-        
-        waveform, sample_rate = librosa.load(file, sr=None)
-
-        if window.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
-            bpm = detect_bpm(waveform, sample_rate)
-        else:
-            bpm = None
-
-        if window.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
-            stems = split_to_stems(input_filepath)
-            stem_name = stems.keys()
-            for key in stem_name:
-                
-
-    ## Enable inputs again
-
-    disableInputs(window, False)
-
-
 class Window(QWidget):
     def __init__(self):
         super().__init__()
+
+        ## Methods for the class
+        def detect_bpm(audio_data, sample_rate):
+            bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
+            bpm = (np.round(bpm_numpy_array).astype(int))[0]
+            return bpm
+
+        def invert_numpy_array(waveform_dict):
+            invert_dict = {}
+            dict_keys = waveform_dict.keys()
+            for key in dict_keys:
+                waveform = waveform_dict.get(key)
+                swapped_axis = np.swapaxes(waveform, 0, 1)
+                invert_dict[key] = swapped_axis
+            return invert_dict
+
+        def split_to_stems(waveform, sample_rate):
+            
+            ## Instantiates 5 stem spleeter separator object
+            ## Multiprocessing is disabled, otherwise windows has problems
+            separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
+
+            waveform = invert_numpy_array(waveform)
+            
+            ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
+            stems_dictionary = separator.separate(waveform)
+
+            stems_dictionary = invert_numpy_array(stems_dictionary)
+
+            ## Return stem waveform dictionary with axes swapped so it can be manipulated by librosa
+            return stems_dictionary
+
+        def write_waveform_to_file(waveform, sample_rate, name, extension):
+            soundfile_waveform = np.swapaxes(waveform, 0, 1)
+            if extension == ".wav":
+                PCM = "PCM_24"
+            else:
+                PCM = None
+
+            ## Concatenate filename and extension
+            filename = name + extension
+            sf.write(filename, soundfile_waveform, sample_rate, PCM)
+
+        def set_lineinp_filepath(tree, text_input):
+            index = tree.selectedIndexes()[0]
+            path = tree.model().fileInfo(index)
+            absolute_path = (path.absoluteFilePath())
+            text_input.setText(absolute_path)
+
+        def disableInputs(boolean):
+            self.stems_checkbox.setEnabled(not boolean)
+            self.bpm_checkbox.setEnabled(not boolean)
+            self.pitch_checkbox.setEnabled(not boolean)
+
+            self.input_filepath.setReadOnly(boolean)
+            self.output_filepath.setReadOnly(boolean)
+            self.output_foldername.setReadOnly(boolean)
+
+            self.sensitivity_slider.setEnabled(not boolean)
+            self.output_format.setEnabled(not boolean)
+            self.start_button.setEnabled(not boolean)
+
+        def validate_file_ext(file):
+
+            valid_filetypes = ("wav", "flac", "ogg")
+
+            for extension in valid_filetypes:
+                file_ext = ((file.split("."))[-1]).lower()
+                if file_ext == extension: ## If file extension is equal to one as specified in tuple...
+                    return os.path.abspath(file) ## Return absolute filepath of file
+
+        def run_slicer():
+
+            input_files = []
+            
+            ## Disable inputs
+            disableInputs(True)
+
+            input_filepath = self.input_filepath.text()
+            output_filepath = self.output_filepath.text()
+            output_foldername = self.output_foldername.text()
+
+            if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
+                files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
+                for file in files: ## For each file...
+                    input_files.append(validate_file_ext(input_filepath)) ## Validate it's extension then add to list of filepaths
+                            
+            elif os.path.isfile(input_filepath): ## Elif user selected single file...
+                input_files.append(validate_file_ext(input_filepath)) ## Validate single file then add to list of filepaths
+
+            for file in input_files:
+                
+                waveform, sample_rate = librosa.load(file, sr=None)
+
+                if self.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
+                    bpm = detect_bpm(waveform, sample_rate)
+                else:
+                    bpm = None
+                """
+                if window.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
+                    stems = split_to_stems(input_filepath)
+                    stem_name = stems.keys()
+                    for key in stem_name:
+                    """
+            time.sleep(2)
+            disableInputs(False)
 
         self.setWindowTitle("OctaChop")
         self.setWindowIcon(QIcon("icons/octopus.png"))
@@ -233,7 +231,7 @@ class Window(QWidget):
         self.output_tree = QTreeView()
         self.output_tree.setModel(self.output_model)
         self.output_tree.setAnimated(True)
-        self.output_tree.clicked.connect(lambda: set_lineinp_filepath(output_tree, output_filepath))
+        self.output_tree.clicked.connect(lambda: set_lineinp_filepath(self.output_tree, self.output_filepath))
         layout.addWidget(self.output_tree, 0, 6, 6, 6)
 
         self.stems_checkbox = QCheckBox("Split to stems?")
@@ -265,7 +263,7 @@ class Window(QWidget):
         self.start_button = QPushButton("Start")
 
         ## Links access to all other elements of the GUI
-        self.start_button.clicked.connect(lambda: run_slicer(self))
+        self.start_button.clicked.connect(lambda: run_slicer())
 
         layout.addWidget(self.start_button, 7, 11)
 
