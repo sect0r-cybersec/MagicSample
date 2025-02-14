@@ -58,38 +58,6 @@ other
 piano
 vocals
 """
-def split_to_samples(drumkit_filename, path_to_samples):
-    absolute_path_to_samples = os.path.abspath(path_to_samples)
-    os.mkdir(drumkit_filename)
-    os.chdir(drumkit_filename)
-    for stem_component in os.listdir(absolute_path_to_samples):
-        wav_file = os.path.join(absolute_path_to_samples, stem_component)
-        if os.path.isfile(wav_file):
-            component = (stem_component.split("."))[0]
-            os.mkdir(component)
-            os.chdir(component)
-
-            audio_data, sample_rate = librosa.load(wav_file, sr=None, mono=False)
-            ## audio data is in the format [[channel L] [channel R]]
-
-            samples = librosa.effects.split(audio_data, top_db=10)
-            count = 1
-            for sample in samples:
-                sample_start = sample[0]
-                sample_end = sample[1]
-                librosa_sample_slice = audio_data[:, sample_start:sample_end]
-
-                ## Librosa and Soundfile both store sound in channel x waveform two dimensional arrays,
-                ## but on different axes. This swaps them
-                soundfile_sample_slice = np.swapaxes(librosa_sample_slice, 0, 1)
-
-                print(soundfile_sample_slice)
-                output_path = ("Sample{0}.wav".format(str(count)))
-                sf.write(output_path, soundfile_sample_slice, sample_rate, "PCM_24")
-                count += 1
-            os.chdir("..")
-
-    os.chdir("..")
 
 class Window(QWidget):
     def __init__(self):
@@ -97,7 +65,7 @@ class Window(QWidget):
 
         ## Methods for the class
         def detect_bpm(audio_data, sample_rate):
-            bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
+            bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate, sparse=False)
             bpm = (np.round(bpm_numpy_array).astype(int))[0]
             return bpm
 
@@ -115,8 +83,8 @@ class Window(QWidget):
             ## Instantiates 5 stem spleeter separator object
             ## Multiprocessing is disabled, otherwise windows has problems
             separator = Separator("spleeter:5stems-16kHz", multiprocess=False)
-
-            waveform = invert_numpy_array(waveform)
+            
+            waveform = np.swapaxes(waveform, 0, 1)
             
             ## Separator returns a dictionary object with the stem name as key (e.g. drums, bass, vocals), and the waveform as the value
             stems_dictionary = separator.separate(waveform)
@@ -126,16 +94,14 @@ class Window(QWidget):
             ## Return stem waveform dictionary with axes swapped so it can be manipulated by librosa
             return stems_dictionary
 
-        def write_waveform_to_file(waveform, sample_rate, name, extension):
+        def write_waveform_to_file(waveform, sample_rate, path, name, extension):
+            ## Soundfile and librosa use opposite axes for channels x data
             soundfile_waveform = np.swapaxes(waveform, 0, 1)
-            if extension == ".wav":
-                PCM = "PCM_24"
-            else:
-                PCM = None
-
+            PCM = "PCM_24"
             ## Concatenate filename and extension
             filename = name + extension
-            sf.write(filename, soundfile_waveform, sample_rate, PCM)
+            out_path = ("{0}/{1}".format(path, filename))
+            sf.write(out_path, soundfile_waveform, sample_rate, PCM)
 
         def set_lineinp_filepath(tree, text_input):
             index = tree.selectedIndexes()[0]
@@ -165,6 +131,14 @@ class Window(QWidget):
                 if file_ext == extension: ## If file extension is equal to one as specified in tuple...
                     return os.path.abspath(file) ## Return absolute filepath of file
 
+        def sample(waveform, sample_rate, filename, sens):
+            sample_index = librosa.effects.split(waveform, top_db=sens)
+            for sample in sample_index:
+                sample_start = sample[0]
+                sample_end = sample[1]
+                sample_waveform = waveform[:, sample_start:sample_end]
+                write_waveform_to_file(sample_waveform, sample_rate, filename)
+
         def run_slicer():
 
             input_files = []
@@ -176,6 +150,8 @@ class Window(QWidget):
             output_filepath = self.output_filepath.text()
             output_foldername = self.output_foldername.text()
 
+            extension = self.output_format.currentText()
+
             if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
                 files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
                 for file in files: ## For each file...
@@ -184,21 +160,52 @@ class Window(QWidget):
             elif os.path.isfile(input_filepath): ## Elif user selected single file...
                 input_files.append(validate_file_ext(input_filepath)) ## Validate single file then add to list of filepaths
 
+            absolute_output_path = os.path.join(output_filepath, output_foldername)
+
+            if os.path.isdir(absolute_output_path) == False:
+                os.mkdir(absolute_output_path)
+            
             for file in input_files:
                 
-                waveform, sample_rate = librosa.load(file, sr=None)
+                waveform, sample_rate = librosa.load(file, sr=None, mono=False)
 
                 if self.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
                     bpm = detect_bpm(waveform, sample_rate)
                 else:
                     bpm = None
-                """
-                if window.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
-                    stems = split_to_stems(input_filepath)
+                
+                if self.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
+                    stems = split_to_stems(waveform, sample_rate)
                     stem_name = stems.keys()
+                    
                     for key in stem_name:
-                    """
-            time.sleep(2)
+
+                        stem_waveform = stems.get(key)
+                        stem_path = os.path.join(absolute_output_path, key)
+                        if os.path.isdir(stem_path) == False:
+                            os.mkdir(stem_path)
+                            
+                        sample_index = librosa.effects.split(stem_waveform, top_db=10)
+                        count = 1
+                        for sample in sample_index:
+                            sample_start = sample[0]
+                            sample_end = sample[1]
+                            sample_waveform = stem_waveform[:, sample_start:sample_end]
+                            filename = ("{0} {1}bpm {2}".format(key, bpm, count))
+                            write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, extension)
+                            count += 1
+
+                elif self.stems_checkbox.isChecked() == False:
+                    sample_index = librosa.effects.split(waveform, top_db=10)
+                    count = 1
+                    for sample in sample_index:
+                        sample_start = sample[0]
+                        sample_end = sample[1]
+                        sample_waveform = waveform[:, sample_start:sample_end]
+                        filename = ("Sample {0}bpm {1}".format(bpm, count))
+                        write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, extension)
+                        count += 1
+                    
             disableInputs(False)
 
         self.setWindowTitle("OctaChop")
