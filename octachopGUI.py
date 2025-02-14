@@ -99,8 +99,7 @@ class Window(QWidget):
             soundfile_waveform = np.swapaxes(waveform, 0, 1)
             PCM = "PCM_24"
             ## Concatenate filename and extension
-            filename = name + extension
-            out_path = ("{0}/{1}".format(path, filename))
+            out_path = ("{0}/{1}.{2}".format(path, name, extension))
             sf.write(out_path, soundfile_waveform, sample_rate, PCM)
 
         def set_lineinp_filepath(tree, text_input):
@@ -122,14 +121,13 @@ class Window(QWidget):
             self.output_format.setEnabled(not boolean)
             self.start_button.setEnabled(not boolean)
 
-        def validate_file_ext(file):
-
-            valid_filetypes = ("wav", "flac", "ogg")
-
-            for extension in valid_filetypes:
+        def ext_isValid(file):
+            for ext in self.valid_ext:
                 file_ext = ((file.split("."))[-1]).lower()
-                if file_ext == extension: ## If file extension is equal to one as specified in tuple...
-                    return os.path.abspath(file) ## Return absolute filepath of file
+                if file_ext == ext: ## If file extension is equal to one as specified in tuple...
+                    return True
+                else:
+                    return False
 
         def sample(waveform, sample_rate, filename, sens):
             sample_index = librosa.effects.split(waveform, top_db=sens)
@@ -155,15 +153,18 @@ class Window(QWidget):
             if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
                 files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
                 for file in files: ## For each file...
-                    input_files.append(validate_file_ext(input_filepath)) ## Validate it's extension then add to list of filepaths
-                            
-            elif os.path.isfile(input_filepath): ## Elif user selected single file...
-                input_files.append(validate_file_ext(input_filepath)) ## Validate single file then add to list of filepaths
+                    if ext_isValid(file) == True:
+                        good_file = os.path.abspath(file)
+                        input_files.append(good_file)
+                        
+            elif os.path.isfile(input_filepath) and ext_isValid(input_filepath) == True:
+                good_file = os.path.abspath(input_filepath)
+                input_files.append(good_file)
+                
+            absolute_output_folder = os.path.join(output_filepath, output_foldername)
 
-            absolute_output_path = os.path.join(output_filepath, output_foldername)
-
-            if os.path.isdir(absolute_output_path) == False:
-                os.mkdir(absolute_output_path)
+            if os.path.isdir(absolute_output_folder) == False:
+                os.mkdir(absolute_output_folder)
             
             for file in input_files:
                 
@@ -176,12 +177,12 @@ class Window(QWidget):
                 
                 if self.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
                     stems = split_to_stems(waveform, sample_rate)
-                    stem_name = stems.keys()
+                    stem_names = stems.keys()
                     
-                    for key in stem_name:
+                    for key in stem_names:
 
                         stem_waveform = stems.get(key)
-                        stem_path = os.path.join(absolute_output_path, key)
+                        stem_path = os.path.join(absolute_output_folder, key)
                         if os.path.isdir(stem_path) == False:
                             os.mkdir(stem_path)
                             
@@ -211,6 +212,8 @@ class Window(QWidget):
         self.setWindowTitle("OctaChop")
         self.setWindowIcon(QIcon("icons/octopus.png"))
 
+        self.valid_ext = ("wav", "flac", "ogg")
+    
         layout = QGridLayout()
         layout.fillWidth = True
         layout.fillHeight = True
@@ -262,9 +265,9 @@ class Window(QWidget):
         layout.addWidget(self.output_foldername, 7, 8, 1, 2)
 
         self.output_format = QComboBox()
-        self.output_format.addItem(".wav")
-        self.output_format.addItem(".flac")
-        self.output_format.addItem(".ogg")
+        ## valid_ext = ("wav", "flac", "ogg")
+        for ext in self.valid_ext:
+            self.output_format.addItem(ext)
         layout.addWidget(self.output_format, 7, 10)
 
         self.start_button = QPushButton("Start")
