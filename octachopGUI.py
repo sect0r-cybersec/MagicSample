@@ -60,9 +60,150 @@ vocals
 """
 
 class Window(QWidget):
-    def __init__(self):
-        super().__init__()
 
+    window = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setup_ui()
+
+    def disableInputs(boolean):
+        self.stems_checkbox.setEnabled(not boolean)
+        self.bpm_checkbox.setEnabled(not boolean)
+        self.pitch_checkbox.setEnabled(not boolean)
+
+        self.input_filepath.setReadOnly(boolean)
+        self.output_filepath.setReadOnly(boolean)
+        self.output_foldername.setReadOnly(boolean)
+
+        self.sensitivity_slider.setEnabled(not boolean)
+        self.output_format.setEnabled(not boolean)
+        self.start_button.setEnabled(not boolean)
+
+    def set_lineinp_filepath(self, tree, text_input):
+        index = tree.selectedIndexes()[0]
+        path = tree.model().fileInfo(index)
+        absolute_path = (path.absoluteFilePath())
+        text_input.setText(absolute_path)
+
+    def run_backend(self):
+
+        self.disableInputs(True)
+
+        self.thread = QThread()
+        self.worker = Worker(self, _)
+
+        self.worker.moveToThread(self.thread)
+
+        self.thread.started.connect(self.worker.run)
+
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        self.thread.start()
+
+        self.disableInputs(False)
+
+    def setup_ui(self):
+        self.setWindowTitle("OctaChop")
+        self.setWindowIcon(QIcon("icons/octopus.png"))
+
+        self.valid_ext = ("wav", "flac", "ogg")
+    
+        layout = QGridLayout()
+        layout.fillWidth = True
+        layout.fillHeight = True
+
+        self.input_filepath = QLineEdit()
+        self.input_filepath.setPlaceholderText("Input filepath...")
+        layout.addWidget(self.input_filepath, 6, 0, 1, 6)
+
+        self.output_filepath = QLineEdit()
+        self.output_filepath.setPlaceholderText("Output path...")
+        layout.addWidget(self.output_filepath, 6, 6, 1, 6)
+
+        self.input_model = QFileSystemModel()
+        self.input_model.setRootPath("")
+
+        self.input_tree = QTreeView()
+        self.input_tree.setModel(self.input_model)
+        self.input_tree.setAnimated(True)
+        self.input_tree.clicked.connect(lambda: self.set_lineinp_filepath(self.input_tree, self.input_filepath))
+        layout.addWidget(self.input_tree, 0, 0, 6, 6)
+
+        self.output_model = QFileSystemModel()
+        self.output_model.setRootPath("")
+
+        self.output_tree = QTreeView()
+        self.output_tree.setModel(self.output_model)
+        self.output_tree.setAnimated(True)
+        self.output_tree.clicked.connect(lambda: self.set_lineinp_filepath(self.output_tree, self.output_filepath))
+        layout.addWidget(self.output_tree, 0, 6, 6, 6)
+
+        self.stems_checkbox = QCheckBox("Split to stems?")
+        layout.addWidget(self.stems_checkbox, 7, 5)
+
+        self.bpm_checkbox = QCheckBox("Detect bpm?")
+        layout.addWidget(self.bpm_checkbox, 7, 6)
+
+        self.pitch_checkbox = QCheckBox("Detect pitch?")
+        layout.addWidget(self.pitch_checkbox, 7, 7)
+
+        self.sensitivity_slider_label = QLabel("Sensitivity")
+        layout.addWidget(self.sensitivity_slider_label, 7, 0)
+
+        self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
+        layout.addWidget(self.sensitivity_slider, 7, 1, 1, 4)
+
+        self.output_foldername = QLineEdit()
+        ## Adds greyed out text to show the user to input an output filename
+        self.output_foldername.setPlaceholderText("Output foldername...")
+        layout.addWidget(self.output_foldername, 7, 8, 1, 2)
+
+        self.output_format = QComboBox()
+        ## valid_ext = ("wav", "flac", "ogg")
+        for ext in self.valid_ext:
+            self.output_format.addItem(ext)
+        layout.addWidget(self.output_format, 7, 10)
+
+        self.progress_bar = QProgressBar()
+        layout.addWidget(self.progress_bar, 8, 0, 1, 12)
+
+        self.start_button = QPushButton("Start")
+
+        ## Links access to all other elements of the GUI
+        self.start_button.clicked.connect(lambda: run_backend())
+
+        layout.addWidget(self.start_button, 7, 11)
+
+
+        ## This portion of code enables the window to stretch along the x axis,
+        ## as well as the file explorer portion of the y axis
+        filetree_columns = 11
+        filetree_rows = 5
+        for i in range(filetree_columns):
+            layout.setColumnStretch(i, 1)
+        for i in range(filetree_rows):
+            layout.setRowStretch(i, 1)
+
+        total_columns = 11
+        total_rows = 8
+        min_width = 80
+        min_height = 40
+        for i in range(total_columns):
+            layout.setColumnMinimumWidth(i, min_width)
+        for i in range(total_rows):
+            layout.setRowMinimumHeight(i, min_height)
+
+        self.setLayout(layout)
+
+class Worker(Window, QObject):
+    finished = pyqtSignal()
+    sub_progress = pyqtSignal(int)
+    main_progress = pyqtSignal(int)
+    
+    def run(self):
         ## Methods for the class
         def detect_bpm(audio_data, sample_rate):
             bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate, sparse=False)
@@ -102,25 +243,6 @@ class Window(QWidget):
             out_path = ("{0}/{1}.{2}".format(path, name, extension))
             sf.write(out_path, soundfile_waveform, sample_rate, PCM)
 
-        def set_lineinp_filepath(tree, text_input):
-            index = tree.selectedIndexes()[0]
-            path = tree.model().fileInfo(index)
-            absolute_path = (path.absoluteFilePath())
-            text_input.setText(absolute_path)
-
-        def disableInputs(boolean):
-            self.stems_checkbox.setEnabled(not boolean)
-            self.bpm_checkbox.setEnabled(not boolean)
-            self.pitch_checkbox.setEnabled(not boolean)
-
-            self.input_filepath.setReadOnly(boolean)
-            self.output_filepath.setReadOnly(boolean)
-            self.output_foldername.setReadOnly(boolean)
-
-            self.sensitivity_slider.setEnabled(not boolean)
-            self.output_format.setEnabled(not boolean)
-            self.start_button.setEnabled(not boolean)
-
         def ext_isValid(file):
             for ext in self.valid_ext:
                 file_ext = ((file.split("."))[-1]).lower()
@@ -137,168 +259,75 @@ class Window(QWidget):
                 sample_waveform = waveform[:, sample_start:sample_end]
                 write_waveform_to_file(sample_waveform, sample_rate, filename)
 
-        def run_slicer():
+        input_files = []
+        
+        ## Disable inputs
+        disableInputs(True)
 
-            input_files = []
-            
-            ## Disable inputs
-            disableInputs(True)
+        input_filepath = self.input_filepath.text()
+        output_filepath = self.output_filepath.text()
+        output_foldername = self.output_foldername.text()
 
-            input_filepath = self.input_filepath.text()
-            output_filepath = self.output_filepath.text()
-            output_foldername = self.output_foldername.text()
+        extension = self.output_format.currentText()
 
-            extension = self.output_format.currentText()
-
-            if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
-                files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
-                for file in files: ## For each file...
-                    if ext_isValid(file) == True:
-                        good_file = os.path.abspath(file)
-                        input_files.append(good_file)
-                        
-            elif os.path.isfile(input_filepath) and ext_isValid(input_filepath) == True:
-                good_file = os.path.abspath(input_filepath)
-                input_files.append(good_file)
-                
-            absolute_output_folder = os.path.join(output_filepath, output_foldername)
-
-            if os.path.isdir(absolute_output_folder) == False:
-                os.mkdir(absolute_output_folder)
-            
-            for file in input_files:
-                
-                waveform, sample_rate = librosa.load(file, sr=None, mono=False)
-
-                if self.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
-                    bpm = detect_bpm(waveform, sample_rate)
-                else:
-                    bpm = None
-                
-                if self.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
-                    stems = split_to_stems(waveform, sample_rate)
-                    stem_names = stems.keys()
+        if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
+            files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
+            for file in files: ## For each file...
+                if ext_isValid(file) == True:
+                    good_file = os.path.abspath(file)
+                    input_files.append(good_file)
                     
-                    for key in stem_names:
+        elif os.path.isfile(input_filepath) and ext_isValid(input_filepath) == True:
+            good_file = os.path.abspath(input_filepath)
+            input_files.append(good_file)
+            
+        absolute_output_folder = os.path.join(output_filepath, output_foldername)
 
-                        stem_waveform = stems.get(key)
-                        stem_path = os.path.join(absolute_output_folder, key)
-                        if os.path.isdir(stem_path) == False:
-                            os.mkdir(stem_path)
-                            
-                        sample_index = librosa.effects.split(stem_waveform, top_db=10)
-                        count = 1
-                        for sample in sample_index:
-                            sample_start = sample[0]
-                            sample_end = sample[1]
-                            sample_waveform = stem_waveform[:, sample_start:sample_end]
-                            filename = ("{0} {1}bpm {2}".format(key, bpm, count))
-                            write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, extension)
-                            count += 1
+        if os.path.isdir(absolute_output_folder) == False:
+            os.mkdir(absolute_output_folder)
+        
+        for file in input_files:
+            
+            waveform, sample_rate = librosa.load(file, sr=None, mono=False)
 
-                elif self.stems_checkbox.isChecked() == False:
-                    sample_index = librosa.effects.split(waveform, top_db=10)
+            if self.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
+                bpm = detect_bpm(waveform, sample_rate)
+            else:
+                bpm = None
+            
+            if self.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
+                stems = split_to_stems(waveform, sample_rate)
+                stem_names = stems.keys()
+                
+                for key in stem_names:
+
+                    stem_waveform = stems.get(key)
+                    stem_path = os.path.join(absolute_output_folder, key)
+                    if os.path.isdir(stem_path) == False:
+                        os.mkdir(stem_path)
+                        
+                    sample_index = librosa.effects.split(stem_waveform, top_db=10)
                     count = 1
                     for sample in sample_index:
                         sample_start = sample[0]
                         sample_end = sample[1]
-                        sample_waveform = waveform[:, sample_start:sample_end]
-                        filename = ("Sample {0}bpm {1}".format(bpm, count))
-                        write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, extension)
+                        sample_waveform = stem_waveform[:, sample_start:sample_end]
+                        filename = ("{0} {1}bpm {2}".format(key, bpm, count))
+                        write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, extension)
                         count += 1
-                    
-            disableInputs(False)
 
-        self.setWindowTitle("OctaChop")
-        self.setWindowIcon(QIcon("icons/octopus.png"))
-
-        self.valid_ext = ("wav", "flac", "ogg")
-    
-        layout = QGridLayout()
-        layout.fillWidth = True
-        layout.fillHeight = True
-
-        self.input_filepath = QLineEdit()
-        self.input_filepath.setPlaceholderText("Input filepath...")
-        layout.addWidget(self.input_filepath, 6, 0, 1, 6)
-
-        self.output_filepath = QLineEdit()
-        self.output_filepath.setPlaceholderText("Output path...")
-        layout.addWidget(self.output_filepath, 6, 6, 1, 6)
-
-        self.input_model = QFileSystemModel()
-        self.input_model.setRootPath("")
-
-        self.input_tree = QTreeView()
-        self.input_tree.setModel(self.input_model)
-        self.input_tree.setAnimated(True)
-        self.input_tree.clicked.connect(lambda: set_lineinp_filepath(self.input_tree, self.input_filepath))
-        layout.addWidget(self.input_tree, 0, 0, 6, 6)
-
-        self.output_model = QFileSystemModel()
-        self.output_model.setRootPath("")
-
-        self.output_tree = QTreeView()
-        self.output_tree.setModel(self.output_model)
-        self.output_tree.setAnimated(True)
-        self.output_tree.clicked.connect(lambda: set_lineinp_filepath(self.output_tree, self.output_filepath))
-        layout.addWidget(self.output_tree, 0, 6, 6, 6)
-
-        self.stems_checkbox = QCheckBox("Split to stems?")
-        layout.addWidget(self.stems_checkbox, 7, 5)
-
-        self.bpm_checkbox = QCheckBox("Detect bpm?")
-        layout.addWidget(self.bpm_checkbox, 7, 6)
-
-        self.pitch_checkbox = QCheckBox("Detect pitch?")
-        layout.addWidget(self.pitch_checkbox, 7, 7)
-
-        self.sensitivity_slider_label = QLabel("Sensitivity")
-        layout.addWidget(self.sensitivity_slider_label, 7, 0)
-
-        self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
-        layout.addWidget(self.sensitivity_slider, 7, 1, 1, 4)
-
-        self.output_foldername = QLineEdit()
-        ## Adds greyed out text to show the user to input an output filename
-        self.output_foldername.setPlaceholderText("Output foldername...")
-        layout.addWidget(self.output_foldername, 7, 8, 1, 2)
-
-        self.output_format = QComboBox()
-        ## valid_ext = ("wav", "flac", "ogg")
-        for ext in self.valid_ext:
-            self.output_format.addItem(ext)
-        layout.addWidget(self.output_format, 7, 10)
-
-        self.start_button = QPushButton("Start")
-
-        ## Links access to all other elements of the GUI
-        self.start_button.clicked.connect(lambda: run_slicer())
-
-        layout.addWidget(self.start_button, 7, 11)
-
-        self.progress_bar = QProgressBar()
-        layout.addWidget(self.progress_bar, 8, 0, 1, 12)
-
-        ## This portion of code enables the window to stretch along the x axis,
-        ## as well as the file explorer portion of the y axis
-        filetree_columns = 11
-        filetree_rows = 5
-        for i in range(filetree_columns):
-            layout.setColumnStretch(i, 1)
-        for i in range(filetree_rows):
-            layout.setRowStretch(i, 1)
-
-        total_columns = 11
-        total_rows = 8
-        min_width = 80
-        min_height = 40
-        for i in range(total_columns):
-            layout.setColumnMinimumWidth(i, min_width)
-        for i in range(total_rows):
-            layout.setRowMinimumHeight(i, min_height)
-
-        self.setLayout(layout)
+            elif self.stems_checkbox.isChecked() == False:
+                sample_index = librosa.effects.split(waveform, top_db=10)
+                count = 1
+                for sample in sample_index:
+                    sample_start = sample[0]
+                    sample_end = sample[1]
+                    sample_waveform = waveform[:, sample_start:sample_end]
+                    filename = ("Sample {0}bpm {1}".format(bpm, count))
+                    write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, extension)
+                    count += 1
+                
+        self.finished.emit()
 
 def main():
 
