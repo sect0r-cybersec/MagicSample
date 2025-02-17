@@ -67,7 +67,7 @@ class Window(QWidget):
         super().__init__(parent)
         self.setup_ui()
 
-    def disableInputs(boolean):
+    def disableInputs(self, boolean):
         self.stems_checkbox.setEnabled(not boolean)
         self.bpm_checkbox.setEnabled(not boolean)
         self.pitch_checkbox.setEnabled(not boolean)
@@ -88,10 +88,22 @@ class Window(QWidget):
 
     def run_backend(self):
 
+        ## Disable inputs
+
         self.disableInputs(True)
 
+        ## Obtain all current values from inputs
+
+        input_filepath = self.input_filepath.text()
+        output_filepath = self.output_filepath.text()
+        output_foldername = self.output_foldername.text()
+        extension = self.output_format.currentText()
+        stems_checkbox = self.stems_checkbox.isChecked()
+        bpm_checkbox = self.bpm_checkbox.isChecked()
+        pitch_checkbox = self.pitch_checkbox.isChecked()
+
         self.thread = QThread()
-        self.worker = Worker(self, _)
+        self.worker = Worker(input_filepath, output_filepath, output_foldername, extension, stems_checkbox, bpm_checkbox)
 
         self.worker.moveToThread(self.thread)
 
@@ -103,7 +115,9 @@ class Window(QWidget):
 
         self.thread.start()
 
-        self.disableInputs(False)
+        ## Enable inputs again
+
+        self.thread.finished.connect(lambda: self.disableInputs(False))
 
     def setup_ui(self):
         self.setWindowTitle("OctaChop")
@@ -162,7 +176,7 @@ class Window(QWidget):
         layout.addWidget(self.output_foldername, 7, 8, 1, 2)
 
         self.output_format = QComboBox()
-        ## valid_ext = ("wav", "flac", "ogg")
+        ##valid_ext = ("wav", "flac", "ogg")
         for ext in self.valid_ext:
             self.output_format.addItem(ext)
         layout.addWidget(self.output_format, 7, 10)
@@ -173,7 +187,7 @@ class Window(QWidget):
         self.start_button = QPushButton("Start")
 
         ## Links access to all other elements of the GUI
-        self.start_button.clicked.connect(lambda: run_backend())
+        self.start_button.clicked.connect(lambda: self.run_backend())
 
         layout.addWidget(self.start_button, 7, 11)
 
@@ -198,12 +212,23 @@ class Window(QWidget):
 
         self.setLayout(layout)
 
-class Worker(Window, QObject):
+class Worker(QObject):
+
+    def __init__(self, input_filepath, output_filepath, output_foldername, extension, stems_checkbox, bpm_checkbox):
+        super(Worker, self).__init__()
+        self.input_filepath = input_filepath
+        self.output_filepath = output_filepath
+        self.output_foldername = output_foldername
+        self.extension = extension
+        self.stems_checkbox = stems_checkbox
+        self.bpm_checkbox = bpm_checkbox
+
     finished = pyqtSignal()
     sub_progress = pyqtSignal(int)
     main_progress = pyqtSignal(int)
     
     def run(self):
+
         ## Methods for the class
         def detect_bpm(audio_data, sample_rate):
             bpm_numpy_array, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate, sparse=False)
@@ -260,28 +285,18 @@ class Worker(Window, QObject):
                 write_waveform_to_file(sample_waveform, sample_rate, filename)
 
         input_files = []
-        
-        ## Disable inputs
-        disableInputs(True)
 
-        input_filepath = self.input_filepath.text()
-        output_filepath = self.output_filepath.text()
-        output_foldername = self.output_foldername.text()
-
-        extension = self.output_format.currentText()
-
-        if os.path.isdir(input_filepath): ## If user selected folder (multiple files)...
-            files = os.listdir(input_filepath) ## Lists files in current directory. Is not recursive
+        if os.path.isdir(self.input_filepath): ## If user selected folder (multiple files)...
+            files = os.listdir(self.input_filepath) ## Lists files in current directory. Is not recursive
             for file in files: ## For each file...
-                if ext_isValid(file) == True:
-                    good_file = os.path.abspath(file)
-                    input_files.append(good_file)
+                good_file = os.path.abspath(file)
+                input_files.append(good_file)
                     
-        elif os.path.isfile(input_filepath) and ext_isValid(input_filepath) == True:
-            good_file = os.path.abspath(input_filepath)
+        elif os.path.isfile(self.input_filepath):
+            good_file = os.path.abspath(self.input_filepath)
             input_files.append(good_file)
             
-        absolute_output_folder = os.path.join(output_filepath, output_foldername)
+        absolute_output_folder = os.path.join(self.output_filepath, self.output_foldername)
 
         if os.path.isdir(absolute_output_folder) == False:
             os.mkdir(absolute_output_folder)
@@ -290,12 +305,12 @@ class Worker(Window, QObject):
             
             waveform, sample_rate = librosa.load(file, sr=None, mono=False)
 
-            if self.bpm_checkbox.isChecked() == True: ## If user wants bpm detection...
+            if self.bpm_checkbox == True: ## If user wants bpm detection...
                 bpm = detect_bpm(waveform, sample_rate)
             else:
                 bpm = None
             
-            if self.stems_checkbox.isChecked() == True: ## If user wants to split track to stems...
+            if self.stems_checkbox == True: ## If user wants to split track to stems...
                 stems = split_to_stems(waveform, sample_rate)
                 stem_names = stems.keys()
                 
@@ -313,10 +328,10 @@ class Worker(Window, QObject):
                         sample_end = sample[1]
                         sample_waveform = stem_waveform[:, sample_start:sample_end]
                         filename = ("{0} {1}bpm {2}".format(key, bpm, count))
-                        write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, extension)
+                        write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, self.extension)
                         count += 1
 
-            elif self.stems_checkbox.isChecked() == False:
+            elif self.stems_checkbox == False:
                 sample_index = librosa.effects.split(waveform, top_db=10)
                 count = 1
                 for sample in sample_index:
@@ -324,7 +339,7 @@ class Worker(Window, QObject):
                     sample_end = sample[1]
                     sample_waveform = waveform[:, sample_start:sample_end]
                     filename = ("Sample {0}bpm {1}".format(bpm, count))
-                    write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, extension)
+                    write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, self.extension)
                     count += 1
                 
         self.finished.emit()
