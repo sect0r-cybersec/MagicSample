@@ -143,6 +143,8 @@ class Window(QWidget):
         self.input_tree = QTreeView()
         self.input_tree.setModel(self.input_model)
         self.input_tree.setAnimated(True)
+        ## Set to extended-selection
+        self.input_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.input_tree.clicked.connect(lambda: self.set_lineinp_filepath(self.input_tree, self.input_filepath))
         layout.addWidget(self.input_tree, 0, 0, 6, 6)
 
@@ -235,6 +237,9 @@ class Worker(QObject):
             bpm = (np.round(bpm_numpy_array).astype(int))[0]
             return bpm
 
+        ##def detect_pitch(audio_data, sample_rate):
+
+
         def invert_numpy_array(waveform_dict):
             invert_dict = {}
             dict_keys = waveform_dict.keys()
@@ -286,15 +291,22 @@ class Worker(QObject):
 
         input_files = []
 
+        """
         if os.path.isdir(self.input_filepath): ## If user selected folder (multiple files)...
             files = os.listdir(self.input_filepath) ## Lists files in current directory. Is not recursive
             for file in files: ## For each file...
                 good_file = os.path.abspath(file)
                 input_files.append(good_file)
                     
-        elif os.path.isfile(self.input_filepath):
-            good_file = os.path.abspath(self.input_filepath)
-            input_files.append(good_file)
+        """
+        ##elif os.path.isfile(self.input_filepath):
+
+        print(input_filepath)
+
+        return
+
+        good_file = os.path.abspath(self.input_filepath)
+        input_files.append(good_file)
             
         absolute_output_folder = os.path.join(self.output_filepath, self.output_foldername)
 
@@ -313,35 +325,35 @@ class Worker(QObject):
             if self.stems_checkbox == True: ## If user wants to split track to stems...
                 stems = split_to_stems(waveform, sample_rate)
                 stem_names = stems.keys()
-                
-                for key in stem_names:
+
+            elif self.stems_checkbox == False:
+                stem_names = ["Sample"]
+
+            for key in stem_names:
+
+                if self.stems_checkbox == True: ## If user wants to split track to stems...
 
                     stem_waveform = stems.get(key)
                     stem_path = os.path.join(absolute_output_folder, key)
                     if os.path.isdir(stem_path) == False:
                         os.mkdir(stem_path)
-                        
-                    sample_index = librosa.effects.split(stem_waveform, top_db=10)
-                    count = 1
-                    for sample in sample_index:
-                        sample_start = sample[0]
-                        sample_end = sample[1]
-                        sample_waveform = stem_waveform[:, sample_start:sample_end]
-                        filename = ("{0} {1}bpm {2}".format(key, bpm, count))
-                        write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, self.extension)
-                        count += 1
 
-            elif self.stems_checkbox == False:
-                sample_index = librosa.effects.split(waveform, top_db=10)
+                filename = key
+                    
+                sample_index = librosa.effects.split(stem_waveform, top_db=10)
                 count = 1
                 for sample in sample_index:
                     sample_start = sample[0]
                     sample_end = sample[1]
-                    sample_waveform = waveform[:, sample_start:sample_end]
-                    filename = ("Sample {0}bpm {1}".format(bpm, count))
-                    write_waveform_to_file(sample_waveform, sample_rate, absolute_output_path, filename, self.extension)
+                    sample_waveform = stem_waveform[:, sample_start:sample_end]
+
+                    if self.bpm_checkbox == True:
+                        filename = filename + " " + bpm + "bpm"
+
+                    filename = filename + " " + count + "." + extension
+                    write_waveform_to_file(sample_waveform, sample_rate, stem_path, filename, self.extension)
                     count += 1
-                
+
         self.finished.emit()
 
 def main():
