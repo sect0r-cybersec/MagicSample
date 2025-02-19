@@ -80,11 +80,21 @@ class Window(QWidget):
         self.output_format.setEnabled(not boolean)
         self.start_button.setEnabled(not boolean)
 
-    def set_lineinp_filepath(self, tree, text_input):
+    def set_lineinp_filepath_old(self, tree, text_input):
         index = tree.selectedIndexes()[0]
         path = tree.model().fileInfo(index)
         absolute_path = (path.absoluteFilePath())
         text_input.setText(absolute_path)
+
+    def set_lineinp_filepath(self, tree, text_input):
+        indexes = tree.selectedIndexes()
+        files = []
+        for index in indexes:
+            path = tree.model().fileInfo(index)
+            absolute_path = (path.absoluteFilePath())
+            files.append(absolute_path)
+        print(files)
+        text_input.setText(files)
 
     def run_backend(self):
 
@@ -154,7 +164,7 @@ class Window(QWidget):
         self.output_tree = QTreeView()
         self.output_tree.setModel(self.output_model)
         self.output_tree.setAnimated(True)
-        self.output_tree.clicked.connect(lambda: self.set_lineinp_filepath(self.output_tree, self.output_filepath))
+        self.output_tree.clicked.connect(lambda: self.set_lineinp_filepath_old(self.output_tree, self.output_filepath))
         layout.addWidget(self.output_tree, 0, 6, 6, 6)
 
         self.stems_checkbox = QCheckBox("Split to stems?")
