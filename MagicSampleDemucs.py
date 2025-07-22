@@ -1,6 +1,7 @@
 #!/usr/bin/env python3.10
 """
 MagicSample Demucs Version
+__version__ = '0.0.1'
 Enhanced audio sample extraction and drumkit creation tool
 
 This version uses Demucs for stem separation and includes:
@@ -317,26 +318,22 @@ class MainWindow(QWidget):
         # Checkboxes in a more compact layout
         self.stems_checkbox = QCheckBox("Split to Stems")
         self.stems_checkbox.setChecked(True)
-        self.stems_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.stems_checkbox, 0, 0)
         
         self.bpm_checkbox = QCheckBox("Detect BPM")
         self.bpm_checkbox.setChecked(True)
-        self.bpm_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.bpm_checkbox, 0, 1)
         
         self.pitch_checkbox = QCheckBox("Detect Pitch")
         self.pitch_checkbox.setChecked(True)
-        self.pitch_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.pitch_checkbox, 1, 0)
         
         self.drum_classify_checkbox = QCheckBox("Classify Drums")
         self.drum_classify_checkbox.setChecked(True)
-        self.drum_classify_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.drum_classify_checkbox, 1, 1)
         
         # Sensitivity slider
-        sensitivity_label = QLabel("Sample Detection Sensitivity:")
+        sensitivity_label = QLabel("Sample Detection Sensitivity (lower = more samples)")
         sensitivity_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(sensitivity_label, 2, 0, 1, 2)
         
@@ -354,7 +351,6 @@ class MainWindow(QWidget):
         
         self.format_combo = QComboBox()
         self.format_combo.addItems(['WAV', 'FLAC', 'OGG'])
-        self.format_combo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.format_combo, 4, 1)
         
         drumkit_label = QLabel("Drumkit Name:")
@@ -514,7 +510,7 @@ class ProcessingWorker(QThread):
                 print(f"Detected BPM: {bpm}")
             
             # Create output directory structure
-            drumkit_path = os.path.join(self.output_path, self.drumkit_name)
+            drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
             os.makedirs(drumkit_path, exist_ok=True)
             
             if self.split_stems:
@@ -550,7 +546,7 @@ class ProcessingWorker(QThread):
                         print(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         
                         # Create stem directory
-                        stem_dir = os.path.join(drumkit_path, stem_name.upper())
+                        stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
                         os.makedirs(stem_dir, exist_ok=True)
                         
                         # Process stem according to its type
@@ -567,7 +563,7 @@ class ProcessingWorker(QThread):
                             
                         else:
                             # Process other stems (bass, other) as individual samples
-                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.upper(), bpm)
+                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm)
                             print(f"Created {sample_count} samples for {stem_name}")
                     
                     # Clean up temporary files
@@ -579,19 +575,19 @@ class ProcessingWorker(QThread):
                     self.status_updated.emit(f"Stem separation failed: {str(e)}")
                     # Fall back to processing the whole file
                     self.status_updated.emit("Falling back to processing whole file...")
-                    samples_dir = os.path.join(drumkit_path, "SAMPLES")
+                    samples_dir = os.path.join(drumkit_path, "Samples")
                     os.makedirs(samples_dir, exist_ok=True)
-                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "SAMPLE", bpm)
+                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
                     print(f"Created {sample_count} samples from whole file")
             else:
                 # Process entire file as one stem
                 self.status_updated.emit("Processing audio into samples...")
                 self.progress_updated.emit(40)
                 
-                samples_dir = os.path.join(drumkit_path, "SAMPLES")
+                samples_dir = os.path.join(drumkit_path, "Samples")
                 os.makedirs(samples_dir, exist_ok=True)
                 
-                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "SAMPLE", bpm)
+                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
                 print(f"Created {sample_count} samples from whole file")
             
             self.status_updated.emit("Creating drumkit metadata...")
@@ -682,7 +678,7 @@ class ProcessingWorker(QThread):
                 print(f"Processing sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
                 
                 # Generate filename
-                filename_parts = [f"{stem_name}_{i+1:03d}"]
+                filename_parts = [f"{stem_name.capitalize()}_{i+1:03d}"]
                 
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
@@ -724,7 +720,7 @@ class ProcessingWorker(QThread):
             return 0  # Return 0 samples processed on error
     
     def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm):
-        """Process drums into frequency-based subfolders: KICKS, SNARES, CLAPS, HI_HATS"""
+        """Process drums into frequency-based subfolders: Kick, Perc, HiHat"""
         try:
             # Convert to mono for sample detection
             if len(audio_data.shape) > 1:
@@ -751,15 +747,13 @@ class ProcessingWorker(QThread):
                 sample_boundaries = [(0, len(audio_mono))]
             
             # Create subfolders for different drum types
-            kicks_dir = os.path.join(output_dir, "KICKS")
-            snares_dir = os.path.join(output_dir, "SNARES")
-            claps_dir = os.path.join(output_dir, "CLAPS")
-            hihats_dir = os.path.join(output_dir, "HI_HATS")
+            kick_dir = os.path.join(output_dir, "Kick")
+            perc_dir = os.path.join(output_dir, "Perc")
+            hihat_dir = os.path.join(output_dir, "HiHat")
             
-            os.makedirs(kicks_dir, exist_ok=True)
-            os.makedirs(snares_dir, exist_ok=True)
-            os.makedirs(claps_dir, exist_ok=True)
-            os.makedirs(hihats_dir, exist_ok=True)
+            os.makedirs(kick_dir, exist_ok=True)
+            os.makedirs(perc_dir, exist_ok=True)
+            os.makedirs(hihat_dir, exist_ok=True)
             
             sample_count = 0
             for i, (start, end) in enumerate(sample_boundaries):
@@ -791,18 +785,15 @@ class ProcessingWorker(QThread):
                 print(f"Classified as: {drum_type}")
                 
                 # Determine target directory
-                if drum_type == "KICKS":
-                    target_dir = kicks_dir
-                    prefix = "KICK"
-                elif drum_type == "HI_HATS":
-                    target_dir = hihats_dir
-                    prefix = "HIHAT"
-                elif drum_type == "CLAPS":
-                    target_dir = claps_dir
-                    prefix = "CLAP"
-                else:  # SNARES
-                    target_dir = snares_dir
-                    prefix = "SNARE"
+                if drum_type == "Kick":
+                    target_dir = kick_dir
+                    prefix = "Kick"
+                elif drum_type == "HiHat":
+                    target_dir = hihat_dir
+                    prefix = "HiHat"
+                else:  # Perc
+                    target_dir = perc_dir
+                    prefix = "Perc"
                 
                 # Generate filename
                 filename_parts = [f"{prefix}_{i+1:03d}"]
@@ -817,7 +808,7 @@ class ProcessingWorker(QThread):
                         filename_parts.append(pitch)
                 
                 # Create final filename
-                filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
+                filename = "_".join(filename_parts) + f".{self.output_format.capitalize()}"
                 filepath = os.path.join(target_dir, filename)
                 
                 # Save sample
@@ -825,10 +816,9 @@ class ProcessingWorker(QThread):
                 sample_count += 1
             
             print(f"Successfully created {sample_count} drum samples:")
-            print(f"  - KICKS: {len(os.listdir(kicks_dir))} samples")
-            print(f"  - SNARES: {len(os.listdir(snares_dir))} samples")
-            print(f"  - CLAPS: {len(os.listdir(claps_dir))} samples")
-            print(f"  - HI_HATS: {len(os.listdir(hihats_dir))} samples")
+            print(f"  - Kick: {len(os.listdir(kick_dir))} samples")
+            print(f"  - Perc: {len(os.listdir(perc_dir))} samples")
+            print(f"  - HiHat: {len(os.listdir(hihat_dir))} samples")
             return sample_count
                 
         except Exception as e:
@@ -836,9 +826,9 @@ class ProcessingWorker(QThread):
             import traceback
             traceback.print_exc()
             return 0
-    
+
     def classify_drum_by_frequency(self, audio_data, sample_rate):
-        """Classify drum sample based on frequency characteristics using professional frequency ranges"""
+        """Classify drum sample as Kick, HiHat, or Perc based on frequency characteristics"""
         try:
             # Convert to mono if stereo
             if len(audio_data.shape) > 1:
@@ -848,57 +838,27 @@ class ProcessingWorker(QThread):
             
             # Calculate spectral features
             spectral_centroid = librosa.feature.spectral_centroid(y=audio_mono, sr=sample_rate)[0]
-            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_mono, sr=sample_rate)[0]
             spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_mono, sr=sample_rate)[0]
-            
-            # Calculate RMS energy
             rms = librosa.feature.rms(y=audio_mono)[0]
-            
-            # Calculate zero crossing rate
             zcr = librosa.feature.zero_crossing_rate(audio_mono)[0]
             
-            # Get average values
             avg_centroid = np.mean(spectral_centroid)
-            avg_rolloff = np.mean(spectral_rolloff)
             avg_bandwidth = np.mean(spectral_bandwidth)
             avg_rms = np.mean(rms)
             avg_zcr = np.mean(zcr)
             
-            print(f"  Spectral centroid: {avg_centroid:.1f} Hz")
-            print(f"  Spectral rolloff: {avg_rolloff:.1f} Hz")
-            print(f"  Spectral bandwidth: {avg_bandwidth:.1f} Hz")
-            print(f"  RMS energy: {avg_rms:.4f}")
-            print(f"  Zero crossing rate: {avg_zcr:.4f}")
-            
-            # Classification logic based on professional frequency ranges from the image:
-            # Kick Drum: 40-100 Hz (sub), 100-250 Hz (body/punch), 2-5 kHz (click)
-            # Snare Drum: 120-250 Hz (body), 500-3 kHz (crack), 5-10 kHz (snap/sizzle)
-            # Claps: 800 Hz-3 kHz (body), 5-10 kHz (brightness)
-            # Hi-Hats: 5-10 kHz (brightness/sizzle), sometimes 300-1 kHz (low-end bleed)
-            
-            if avg_centroid < 200 and avg_rms > 0.2:
-                # Low frequency, high energy = kick drum
-                # Kick drums dominate the low-end; sub-bass below 60 Hz, thump around 80-100 Hz
-                return "KICKS"
-            elif avg_centroid > 5000 and avg_zcr > 0.08:
-                # High frequency, high zero crossing rate = hi-hat
-                # Hi-hats mostly occupy high-frequency range and provide shimmer
-                return "HI_HATS"
-            elif avg_centroid > 6000 and avg_zcr > 0.05:
-                # Very high frequency = clap (brightness)
-                # Claps are brighter and live mostly in mids and highs
-                return "CLAPS"
-            elif (avg_centroid > 120 and avg_centroid < 3000) and avg_bandwidth > 1000:
-                # Broad frequency range with significant bandwidth = snare
-                # Snares have broad range; power in low mids, presence in high mids
-                return "SNARES"
+            # Kick: low centroid, high energy
+            if avg_centroid < 1000 and avg_rms > 0.2:
+                return "Kick"
+            # HiHat: high centroid, high zero crossing
+            elif avg_centroid > 4000 and avg_zcr > 0.1:
+                return "HiHat"
+            # Perc: everything else
             else:
-                # Default to snares for other percussion
-                return "SNARES"
-                
+                return "Perc"
         except Exception as e:
             print(f"Classification error: {e}")
-            return "SNARES"  # Default to snares
+            return "Perc"
     
     def save_audio_sample(self, audio_data, sample_rate, filepath):
         """Save audio sample to file"""

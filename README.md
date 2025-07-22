@@ -1,3 +1,20 @@
+# MagicSample
+
+![Version](https://img.shields.io/badge/version-0.0.1-blue)
+
+**Current Version:** 0.0.1
+
+---
+
+## Versioning
+
+This project uses [Semantic Versioning](https://semver.org/) in the format `MAJOR.MINOR.PATCH`.
+- **Current version:** `0.0.1`
+- The version is defined in `MagicSampleDemucs.py` as `__version__ = '0.0.1'`
+- Update the version with each release or significant change.
+
+---
+
 # MagicSample Demucs Version
 
 An enhanced audio sample extraction and drumkit creation tool that uses the Demucs library for superior stem separation.
@@ -12,38 +29,75 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Multiple Output Formats**: Supports WAV, FLAC, and OGG formats
 - **User-Friendly GUI**: Modern PyQt6 interface with progress tracking
 
-## Quick Start
+## Installation
 
-### Windows Users
-1. **Double-click** `install_windows.bat` to install dependencies
-2. **Double-click** `run.bat` to start the application
+### Option 1: Python Installation (Recommended for Development)
 
-### Linux/Mac Users
-1. Run `./run.sh` to install dependencies and start the application
+Choose your platform and run the appropriate installer:
 
-### Manual Installation
-1. Install Python 3.8+ from [python.org](https://python.org)
-2. Run `pip install -r requirements.txt`
-3. Run `python MagicSampleDemucs.py`
+**Windows:**
+```bash
+cd install/windows
+install_windows.bat
+```
+
+**Linux:**
+```bash
+cd install/linux
+./install_linux.sh
+```
+
+**macOS:**
+```bash
+cd install/mac
+./install_mac.sh
+```
+
+### Option 2: Standalone Executable (No Python Required)
+
+Build a standalone executable using PyInstaller:
+
+**Windows:**
+```bash
+cd build
+build_windows.bat
+```
+
+**Linux/macOS:**
+```bash
+cd build
+./build_linux.sh
+```
+
+**Note:** Standalone executables are large (~500MB-1GB) but don't require Python installation.
+
+### Quick Start
+
+1. **Install dependencies** using one of the methods above
+2. **Run the application:**
+   - Python version: `python MagicSampleDemucs.py`
+   - Standalone: `./dist/MagicSample` (Linux/macOS) or `dist\MagicSample.exe` (Windows)
 
 ## Project Structure
 
 ```
 MagicSample/
 ├── MagicSampleDemucs.py      # Main application
-├── requirements.txt          # Dependencies
-├── install_windows.bat       # Windows installation script
-├── install_conda.bat         # Conda installation script
-├── test_installation.py      # Installation test
-├── demo_classification.py    # Demo script
-├── config.json              # Configuration
+├── requirements.txt          # Python dependencies
+├── config.json              # Application configuration
+├── test_installation.py     # Dependency checker
 ├── README.md                # This file
 ├── INSTALL.md               # Detailed installation guide
-├── TROUBLESHOOTING.md       # Troubleshooting guide
-├── run.bat                  # Windows launcher
-├── run.sh                   # Linux/Mac launcher
-└── MagicSampleOld/          # Old version files
-    └── icons/               # Icon files
+├── TROUBLESHOOTING.md       # Problem-solving guide
+├── install/                 # Installation scripts by platform
+│   ├── windows/            # Windows installers
+│   ├── linux/              # Linux installers
+│   └── mac/                # macOS installers
+├── build/                  # PyInstaller build scripts
+│   ├── MagicSample.spec    # PyInstaller configuration
+│   ├── build_windows.bat   # Windows build script
+│   └── build_linux.sh      # Linux/macOS build script
+└── MagicSampleOld/         # Reference material (original version)
 ```
 
 ## Usage
