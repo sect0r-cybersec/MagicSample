@@ -61,9 +61,9 @@ def test_imports():
     
     # PyQt6 imports
     try:
-        from PyQt6.QtWidgets import *
-        from PyQt6.QtGui import *
-        from PyQt6.QtCore import *
+        from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton
+        from PyQt6.QtGui import QIcon
+        from PyQt6.QtCore import QThread, pyqtSignal
         print("✓ PyQt6")
     except ImportError as e:
         print(f"✗ PyQt6: {e}")
@@ -172,8 +172,8 @@ def main():
     
     # Test Python version
     print(f"Python version: {sys.version}")
-    if sys.version_info < (3, 10):
-        print("⚠ Warning: Python 3.10+ recommended")
+    if sys.version_info < (3, 8):
+        print("⚠ Warning: Python 3.8+ recommended")
     else:
         print("✓ Python version OK")
     

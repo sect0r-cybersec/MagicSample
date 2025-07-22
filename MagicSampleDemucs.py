@@ -180,28 +180,63 @@ class DemucsProcessor:
             self.load_model()
         
         try:
-            # Load audio
-            wav, sr = AudioFile(audio_path).read(streams=0, samplerate=self.sample_rate, channels=2)
-            ref = wav.mean(0)
-            wav = (wav - ref.mean()) / ref.std()
+            print(f"Separating stems for: {audio_path}")
+            print(f"Output directory: {output_dir}")
+            
+            # Load audio using librosa to ensure correct format
+            wav, sr = librosa.load(audio_path, sr=self.sample_rate, mono=False)
+            print(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
+            
+            # Convert to torch tensor and ensure correct shape
+            import torch
+            if len(wav.shape) == 1:
+                # Mono audio - convert to stereo
+                wav = np.stack([wav, wav])
+            elif wav.shape[0] == 1:
+                # Mono audio - convert to stereo
+                wav = np.repeat(wav, 2, axis=0)
+            
+            # Convert to torch tensor
+            wav_tensor = torch.from_numpy(wav).float()
+            print(f"Converted to torch tensor: shape={wav_tensor.shape}")
+            
+            # Normalize
+            ref = wav_tensor.mean(0)
+            wav_tensor = (wav_tensor - ref.mean()) / ref.std()
             
             # Separate stems
-            sources = apply_model(self.model, wav[None], device=self.device)[0]
+            print("Applying Demucs model...")
+            sources = apply_model(self.model, wav_tensor[None], device=self.device)[0]
             sources = sources * ref.std() + ref.mean()
+            print(f"Separated into {len(sources)} stems")
             
             # Save stems
             stem_paths = {}
             stem_names = ['drums', 'bass', 'other', 'vocals']
             
-            for source, name in zip(sources, stem_names):
+            for i, (source, name) in enumerate(zip(sources, stem_names)):
                 stem_path = os.path.join(output_dir, f"{name}.wav")
-                save_audio(stem_path, source, self.sample_rate)
-                stem_paths[name] = stem_path
+                print(f"Saving {name} stem to: {stem_path}")
+                
+                # Convert back to numpy and save
+                source_np = source.numpy()
+                import soundfile as sf
+                sf.write(stem_path, source_np.T, self.sample_rate)
+                
+                # Verify the file was created and has content
+                if os.path.exists(stem_path) and os.path.getsize(stem_path) > 0:
+                    stem_paths[name] = stem_path
+                    print(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
+                else:
+                    print(f"✗ {name} stem file is empty or missing")
             
+            print(f"Successfully created {len(stem_paths)} stem files")
             return stem_paths
             
         except Exception as e:
             print(f"Error in stem separation: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
 class MainWindow(QWidget):
@@ -425,6 +460,7 @@ class ProcessingWorker(QThread):
             
             # Load audio file
             audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
+            print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
             
             # Detect BPM if requested
             bpm = None
@@ -432,6 +468,7 @@ class ProcessingWorker(QThread):
                 self.status_updated.emit("Detecting BPM...")
                 self.progress_updated.emit(10)
                 bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
+                print(f"Detected BPM: {bpm}")
             
             # Create output directory structure
             drumkit_path = os.path.join(self.output_path, self.drumkit_name)
@@ -445,32 +482,64 @@ class ProcessingWorker(QThread):
                 temp_dir = os.path.join(drumkit_path, "temp_stems")
                 os.makedirs(temp_dir, exist_ok=True)
                 
-                # Separate stems
-                stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
-                
-                # Process each stem
-                stem_count = len(stem_paths)
-                for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
-                    if self.stop_flag:
-                        break
+                try:
+                    # Separate stems
+                    stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
+                    print(f"Created stems: {list(stem_paths.keys())}")
                     
-                    progress = 20 + (i * 60 // stem_count)
-                    self.status_updated.emit(f"Processing {stem_name} stem...")
-                    self.progress_updated.emit(progress)
+                    # Process each stem according to its type
+                    stem_count = len(stem_paths)
+                    for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
+                        if self.stop_flag:
+                            break
+                        
+                        progress = 20 + (i * 60 // stem_count)
+                        self.status_updated.emit(f"Processing {stem_name} stem...")
+                        self.progress_updated.emit(progress)
+                        
+                        # Check if stem file exists and has content
+                        if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
+                            print(f"Warning: Stem file {stem_path} is empty or missing")
+                            continue
+                        
+                        # Load stem audio
+                        stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
+                        print(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                        
+                        # Create stem directory
+                        stem_dir = os.path.join(drumkit_path, stem_name)
+                        os.makedirs(stem_dir, exist_ok=True)
+                        
+                        # Process stem according to its type
+                        if stem_name == "vocals":
+                            # Save vocals as whole file (no sample splitting)
+                            vocals_filename = f"vocals_{bpm}bpm.{self.output_format}" if bpm else f"vocals.{self.output_format}"
+                            vocals_path = os.path.join(stem_dir, vocals_filename)
+                            self.save_audio_sample(stem_audio, stem_sr, vocals_path)
+                            print(f"Saved vocals as whole file: {vocals_filename}")
+                            
+                        elif stem_name == "drums":
+                            # Process drums with frequency-based subfolders
+                            self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm)
+                            
+                        else:
+                            # Process other stems (bass, other) as individual samples
+                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name, bpm)
+                            print(f"Created {sample_count} samples for {stem_name}")
                     
-                    # Load stem audio
-                    stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
+                    # Clean up temporary files
+                    import shutil
+                    shutil.rmtree(temp_dir)
                     
-                    # Create stem directory
-                    stem_dir = os.path.join(drumkit_path, stem_name)
-                    os.makedirs(stem_dir, exist_ok=True)
-                    
-                    # Process stem into samples
-                    self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name, bpm)
-                
-                # Clean up temporary files
-                import shutil
-                shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"Error in stem separation: {e}")
+                    self.status_updated.emit(f"Stem separation failed: {str(e)}")
+                    # Fall back to processing the whole file
+                    self.status_updated.emit("Falling back to processing whole file...")
+                    samples_dir = os.path.join(drumkit_path, "samples")
+                    os.makedirs(samples_dir, exist_ok=True)
+                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "sample", bpm)
+                    print(f"Created {sample_count} samples from whole file")
             else:
                 # Process entire file as one stem
                 self.status_updated.emit("Processing audio into samples...")
@@ -479,7 +548,8 @@ class ProcessingWorker(QThread):
                 samples_dir = os.path.join(drumkit_path, "samples")
                 os.makedirs(samples_dir, exist_ok=True)
                 
-                self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "sample", bpm)
+                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "sample", bpm)
+                print(f"Created {sample_count} samples from whole file")
             
             self.status_updated.emit("Creating drumkit metadata...")
             self.progress_updated.emit(90)
@@ -493,6 +563,8 @@ class ProcessingWorker(QThread):
         except Exception as e:
             self.status_updated.emit(f"Error: {str(e)}")
             print(f"Processing error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def detect_bpm_from_audio(self, audio_data, sample_rate):
         """Detect BPM from audio"""
@@ -504,6 +576,11 @@ class ProcessingWorker(QThread):
                 audio_mono = audio_data
             
             tempo, beats = librosa.beat.beat_track(y=audio_mono, sr=sample_rate)
+            # Convert numpy array to scalar and round
+            if hasattr(tempo, '__iter__'):
+                tempo = float(tempo[0])
+            else:
+                tempo = float(tempo)
             return int(round(tempo))
         except Exception as e:
             print(f"BPM detection error: {e}")
@@ -518,19 +595,48 @@ class ProcessingWorker(QThread):
             else:
                 audio_mono = audio_data
             
-            # Detect sample boundaries
-            sample_boundaries = librosa.effects.split(audio_mono, top_db=self.sensitivity)
+            print(f"Processing {stem_name}: audio length {len(audio_mono)/sample_rate:.2f}s, sensitivity {self.sensitivity}dB")
             
+            # Try different sensitivity levels if no samples are found
+            sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
+            sample_boundaries = []
+            
+            for sensitivity in sensitivities_to_try:
+                sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
+                print(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential samples")
+                
+                if len(sample_boundaries) > 0:
+                    break
+            
+            if len(sample_boundaries) == 0:
+                print(f"No samples detected for {stem_name} even with high sensitivity. Creating single sample.")
+                # Create one sample from the entire audio
+                sample_boundaries = [(0, len(audio_mono))]
+            
+            sample_count = 0
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
                     break
                 
                 # Extract sample
-                sample_audio = audio_data[:, start:end]
+                if len(audio_data.shape) > 1:
+                    sample_audio = audio_data[:, start:end]
+                else:
+                    sample_audio = audio_data[start:end]
                 
-                # Skip very short samples
-                if sample_audio.shape[1] < sample_rate * 0.01:  # Less than 10ms
+                # Skip very short samples (unless it's the only sample)
+                sample_duration = sample_audio.shape[-1] / sample_rate
+                if sample_duration < 0.01 and len(sample_boundaries) > 1:  # Less than 10ms
+                    print(f"Skipping sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                     continue
+                
+                # Skip very quiet samples (unless it's the only sample)
+                sample_rms = np.sqrt(np.mean(sample_audio**2))
+                if sample_rms < 0.001 and len(sample_boundaries) > 1:  # Very quiet
+                    print(f"Skipping sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                    continue
+                
+                print(f"Processing sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
                 
                 # Generate filename
                 filename_parts = [f"{stem_name}_{i+1:03d}"]
@@ -563,9 +669,172 @@ class ProcessingWorker(QThread):
                 
                 # Save sample
                 self.save_audio_sample(sample_audio, sample_rate, filepath)
+                sample_count += 1
+            
+            print(f"Successfully created {sample_count} samples for {stem_name}")
+            return sample_count
                 
         except Exception as e:
             print(f"Error processing stem {stem_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0  # Return 0 samples processed on error
+    
+    def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm):
+        """Process drums into frequency-based subfolders: kick, percs, hi-hats"""
+        try:
+            # Convert to mono for sample detection
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            print(f"Processing drums: audio length {len(audio_mono)/sample_rate:.2f}s, sensitivity {self.sensitivity}dB")
+            
+            # Try different sensitivity levels if no samples are found
+            sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
+            sample_boundaries = []
+            
+            for sensitivity in sensitivities_to_try:
+                sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
+                print(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential drum samples")
+                
+                if len(sample_boundaries) > 0:
+                    break
+            
+            if len(sample_boundaries) == 0:
+                print(f"No drum samples detected even with high sensitivity. Creating single sample.")
+                # Create one sample from the entire audio
+                sample_boundaries = [(0, len(audio_mono))]
+            
+            # Create subfolders for different drum types
+            kick_dir = os.path.join(output_dir, "kick")
+            percs_dir = os.path.join(output_dir, "percs")
+            hihats_dir = os.path.join(output_dir, "hihats")
+            
+            os.makedirs(kick_dir, exist_ok=True)
+            os.makedirs(percs_dir, exist_ok=True)
+            os.makedirs(hihats_dir, exist_ok=True)
+            
+            sample_count = 0
+            for i, (start, end) in enumerate(sample_boundaries):
+                if self.stop_flag:
+                    break
+                
+                # Extract sample
+                if len(audio_data.shape) > 1:
+                    sample_audio = audio_data[:, start:end]
+                else:
+                    sample_audio = audio_data[start:end]
+                
+                # Skip very short samples (unless it's the only sample)
+                sample_duration = sample_audio.shape[-1] / sample_rate
+                if sample_duration < 0.01 and len(sample_boundaries) > 1:  # Less than 10ms
+                    print(f"Skipping drum sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                    continue
+                
+                # Skip very quiet samples (unless it's the only sample)
+                sample_rms = np.sqrt(np.mean(sample_audio**2))
+                if sample_rms < 0.001 and len(sample_boundaries) > 1:  # Very quiet
+                    print(f"Skipping drum sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                    continue
+                
+                print(f"Processing drum sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
+                
+                # Classify drum sample based on frequency characteristics
+                drum_type = self.classify_drum_by_frequency(sample_audio, sample_rate)
+                print(f"Classified as: {drum_type}")
+                
+                # Determine target directory
+                if drum_type == "kick":
+                    target_dir = kick_dir
+                    prefix = "kick"
+                elif drum_type == "hihat":
+                    target_dir = hihats_dir
+                    prefix = "hihat"
+                else:  # percs or unknown
+                    target_dir = percs_dir
+                    prefix = "perc"
+                
+                # Generate filename
+                filename_parts = [f"{prefix}_{i+1:03d}"]
+                
+                if bpm:
+                    filename_parts.append(f"{bpm}bpm")
+                
+                # Detect pitch if requested
+                if self.detect_pitch:
+                    pitch = self.pitch_detector.detect_pitch(sample_audio, sample_rate)
+                    if pitch and pitch != "N/A":
+                        filename_parts.append(pitch)
+                
+                # Create final filename
+                filename = "_".join(filename_parts) + f".{self.output_format}"
+                filepath = os.path.join(target_dir, filename)
+                
+                # Save sample
+                self.save_audio_sample(sample_audio, sample_rate, filepath)
+                sample_count += 1
+            
+            print(f"Successfully created {sample_count} drum samples:")
+            print(f"  - Kick: {len(os.listdir(kick_dir))} samples")
+            print(f"  - Percs: {len(os.listdir(percs_dir))} samples")
+            print(f"  - Hi-hats: {len(os.listdir(hihats_dir))} samples")
+            return sample_count
+                
+        except Exception as e:
+            print(f"Error processing drums: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
+    
+    def classify_drum_by_frequency(self, audio_data, sample_rate):
+        """Classify drum sample based on frequency characteristics"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate spectral features
+            spectral_centroid = librosa.feature.spectral_centroid(y=audio_mono, sr=sample_rate)[0]
+            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_mono, sr=sample_rate)[0]
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_mono, sr=sample_rate)[0]
+            
+            # Calculate RMS energy
+            rms = librosa.feature.rms(y=audio_mono)[0]
+            
+            # Calculate zero crossing rate
+            zcr = librosa.feature.zero_crossing_rate(audio_mono)[0]
+            
+            # Get average values
+            avg_centroid = np.mean(spectral_centroid)
+            avg_rolloff = np.mean(spectral_rolloff)
+            avg_bandwidth = np.mean(spectral_bandwidth)
+            avg_rms = np.mean(rms)
+            avg_zcr = np.mean(zcr)
+            
+            print(f"  Spectral centroid: {avg_centroid:.1f} Hz")
+            print(f"  Spectral rolloff: {avg_rolloff:.1f} Hz")
+            print(f"  Spectral bandwidth: {avg_bandwidth:.1f} Hz")
+            print(f"  RMS energy: {avg_rms:.4f}")
+            print(f"  Zero crossing rate: {avg_zcr:.4f}")
+            
+            # Classification logic based on frequency characteristics
+            if avg_centroid < 1000 and avg_rms > 0.3:
+                # Low frequency, high energy = kick drum
+                return "kick"
+            elif avg_centroid > 4000 and avg_zcr > 0.1:
+                # High frequency, high zero crossing rate = hi-hat
+                return "hihat"
+            else:
+                # Mid frequency = percussion (snare, tom, etc.)
+                return "percs"
+                
+        except Exception as e:
+            print(f"Classification error: {e}")
+            return "percs"  # Default to percussion
     
     def save_audio_sample(self, audio_data, sample_rate, filepath):
         """Save audio sample to file"""

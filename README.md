@@ -12,32 +12,45 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Multiple Output Formats**: Supports WAV, FLAC, and OGG formats
 - **User-Friendly GUI**: Modern PyQt6 interface with progress tracking
 
-## Installation
+## Quick Start
 
-1. **Install Python 3.10** (required for compatibility)
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Windows Users
+1. **Double-click** `install_windows.bat` to install dependencies
+2. **Double-click** `run.bat` to start the application
 
-### System Requirements
+### Linux/Mac Users
+1. Run `./run.sh` to install dependencies and start the application
 
-- Python 3.10
-- CUDA-compatible GPU (recommended for faster processing)
-- At least 8GB RAM
-- 2GB free disk space
+### Manual Installation
+1. Install Python 3.8+ from [python.org](https://python.org)
+2. Run `pip install -r requirements.txt`
+3. Run `python MagicSampleDemucs.py`
+
+## Project Structure
+
+```
+MagicSample/
+├── MagicSampleDemucs.py      # Main application
+├── requirements.txt          # Dependencies
+├── install_windows.bat       # Windows installation script
+├── install_conda.bat         # Conda installation script
+├── test_installation.py      # Installation test
+├── demo_classification.py    # Demo script
+├── config.json              # Configuration
+├── README.md                # This file
+├── INSTALL.md               # Detailed installation guide
+├── TROUBLESHOOTING.md       # Troubleshooting guide
+├── run.bat                  # Windows launcher
+├── run.sh                   # Linux/Mac launcher
+└── MagicSampleOld/          # Old version files
+    └── icons/               # Icon files
+```
 
 ## Usage
 
-1. **Run the application**:
-   ```bash
-   python MagicSampleDemucs.py
-   ```
-
+1. **Run the application**: `python MagicSampleDemucs.py`
 2. **Select Input File**: Choose an audio file (WAV, MP3, FLAC, OGG, M4A)
-
 3. **Choose Output Directory**: Select where to save the drumkit
-
 4. **Configure Options**:
    - **Split to stems**: Separate into drums, bass, vocals, other
    - **Detect BPM**: Automatically detect and label BPM
@@ -46,7 +59,6 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
    - **Sensitivity**: Adjust sample detection sensitivity (5-30 dB)
    - **Output Format**: Choose WAV, FLAC, or OGG
    - **Drumkit Name**: Name for your drumkit folder
-
 5. **Start Processing**: Click "Start Processing" and wait for completion
 
 ## Output Structure
@@ -56,16 +68,13 @@ The tool creates a drumkit folder with the following structure:
 ```
 MyDrumkit/
 ├── metadata.json          # Processing information and settings
-├── drums/                 # Drum samples
-│   ├── hihat/            # Hi-hat samples
-│   ├── snare/            # Snare samples
-│   ├── kick/             # Kick/bass drum samples
-│   ├── tom/              # Tom samples
-│   ├── clap/             # Clap samples
-│   └── percussion/       # Other percussion
-├── bass/                  # Bass samples
-├── vocals/                # Vocal samples
-└── other/                 # Other instrument samples
+├── drums/                 # Drum samples (split into subfolders)
+│   ├── kick/             # Kick drum samples (low frequency)
+│   ├── percs/            # Percussion samples (mid frequency: snares, toms, etc.)
+│   └── hihats/           # Hi-hat samples (high frequency)
+├── bass/                  # Bass samples (individual samples)
+├── vocals/                # Vocal stem (whole acapella file)
+└── other/                 # Other instrument samples (individual samples)
 ```
 
 ## Sample Naming Convention
@@ -74,52 +83,32 @@ Samples are automatically named with the following format:
 - `{instrument}_{number}_{bpm}bpm_{pitch}.{format}`
 
 Examples:
-- `drums_001_120bpm_C4.wav`
+- `kick_001_120bpm_C4.wav`
 - `hihat_002_120bpm_N/A.wav`
 - `bass_001_120bpm_A2.wav`
+- `vocals_120bpm.wav` (whole acapella file)
 
-## Technical Details
+## Installation Issues?
 
-### Stem Separation
-- Uses Demucs `htdemucs` model for high-quality separation
-- Supports 4 stems: drums, bass, vocals, other
-- Processes at 44.1kHz sample rate
+If you encounter installation problems:
 
-### BPM Detection
-- Uses librosa's beat tracking algorithm
-- Provides accurate tempo estimation
-- Labels all samples with detected BPM
+1. **Check** `INSTALL.md` for detailed installation instructions
+2. **Check** `TROUBLESHOOTING.md` for solutions to common problems
+3. **Try the conda method**: Run `install_conda.bat` (requires Anaconda/Miniconda)
 
-### Pitch Detection
-- Uses librosa's pitch tracking
-- Converts frequencies to musical note names (C4, A2, etc.)
-- Handles both pitched and unpitched sounds
+## System Requirements
 
-### Drum Classification
-- Analyzes spectral characteristics (centroid, rolloff, bandwidth)
-- Uses RMS energy and zero-crossing rate
-- Automatically categorizes into drum types
+### Minimum Requirements
+- Python 3.8 or higher
+- 4GB RAM
+- 2GB free disk space
+- Windows 10/11, macOS 10.14+, or Linux
 
-### Sample Detection
-- Uses librosa's onset detection
-- Configurable sensitivity (5-30 dB)
-- Filters out very short samples (< 10ms)
-
-## Troubleshooting
-
-### Common Issues
-
-1. **CUDA Out of Memory**: Reduce batch size or use CPU processing
-2. **Slow Processing**: Ensure you have a CUDA-compatible GPU
-3. **Poor Separation Quality**: Try different audio files or adjust sensitivity
-4. **Missing Dependencies**: Run `pip install -r requirements.txt`
-
-### Performance Tips
-
-- Use WAV files for best quality
-- Process shorter files for faster results
-- Use GPU acceleration when available
-- Close other applications to free up memory
+### Recommended Requirements
+- Python 3.10
+- 8GB RAM
+- 4GB free disk space
+- CUDA-compatible GPU (for faster processing)
 
 ## Dependencies
 
