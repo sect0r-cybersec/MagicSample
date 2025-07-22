@@ -2,4 +2,7 @@
 build/
 
 # Ignore BFG Repo-Cleaner
-bfg.jar 
+bfg.jar
+
+# Ignore Python cache
+__pycache__/ 

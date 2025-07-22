@@ -492,111 +492,73 @@ class ProcessingWorker(QThread):
         self.pitch_detector = PitchDetector()
     
     def run(self):
-        """Main processing function"""
+        """Main processing function with improved progress updates."""
         try:
             self.status_updated.emit("Loading audio file...")
             self.progress_updated.emit(5)
-            
-            # Load audio file
             audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
             print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-            
-            # Detect BPM if requested
             bpm = None
             if self.detect_bpm:
                 self.status_updated.emit("Detecting BPM...")
                 self.progress_updated.emit(10)
                 bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
                 print(f"Detected BPM: {bpm}")
-            
-            # Create output directory structure
             drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
             os.makedirs(drumkit_path, exist_ok=True)
-            
             if self.split_stems:
                 self.status_updated.emit("Separating stems with Demucs...")
                 self.progress_updated.emit(20)
-                
-                # Create temporary directory for stems
                 temp_dir = os.path.join(drumkit_path, "temp_stems")
                 os.makedirs(temp_dir, exist_ok=True)
-                
                 try:
-                    # Separate stems
                     stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
                     print(f"Created stems: {list(stem_paths.keys())}")
-                    
-                    # Process each stem according to its type
                     stem_count = len(stem_paths)
                     for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
                         if self.stop_flag:
                             break
-                        
                         progress = 20 + (i * 60 // stem_count)
-                        self.status_updated.emit(f"Processing {stem_name} stem...")
+                        self.status_updated.emit(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
                         self.progress_updated.emit(progress)
-                        
-                        # Check if stem file exists and has content
                         if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
                             print(f"Warning: Stem file {stem_path} is empty or missing")
                             continue
-                        
-                        # Load stem audio
                         stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
                         print(f"Loaded {stem_name} stem: {stem_audio.shape}")
-                        
-                        # Create stem directory
                         stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
                         os.makedirs(stem_dir, exist_ok=True)
-                        
-                        # Process stem according to its type
                         if stem_name == "vocals":
-                            # Save vocals as whole file (no sample splitting)
                             vocals_filename = f"Vocals_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals.{self.output_format.upper()}"
                             vocals_path = os.path.join(stem_dir, vocals_filename)
                             self.save_audio_sample(stem_audio, stem_sr, vocals_path)
                             print(f"Saved vocals as whole file: {vocals_filename}")
-                            
                         elif stem_name == "drums":
-                            # Process drums with frequency-based subfolders
+                            self.status_updated.emit("Splitting drums into one-shots...")
                             self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm)
-                            
                         else:
-                            # Process other stems (bass, other) as individual samples
+                            self.status_updated.emit(f"Detecting one-shots in {stem_name}...")
                             sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm)
                             print(f"Created {sample_count} samples for {stem_name}")
-                    
-                    # Clean up temporary files
                     import shutil
                     shutil.rmtree(temp_dir)
-                    
                 except Exception as e:
                     print(f"Error in stem separation: {e}")
                     self.status_updated.emit(f"Stem separation failed: {str(e)}")
-                    # Fall back to processing the whole file
                     self.status_updated.emit("Falling back to processing whole file...")
                     samples_dir = os.path.join(drumkit_path, "Samples")
                     os.makedirs(samples_dir, exist_ok=True)
                     sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
                     print(f"Created {sample_count} samples from whole file")
             else:
-                # Process entire file as one stem
                 self.status_updated.emit("Processing audio into samples...")
                 self.progress_updated.emit(40)
-                
                 samples_dir = os.path.join(drumkit_path, "Samples")
                 os.makedirs(samples_dir, exist_ok=True)
-                
                 sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
                 print(f"Created {sample_count} samples from whole file")
-            
-            # self.status_updated.emit("Creating drumkit metadata...")
-            # self.progress_updated.emit(90)
-            # self.create_drumkit_metadata(drumkit_path, bpm)
-            
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")
-            
         except Exception as e:
             self.status_updated.emit(f"Error: {str(e)}")
             print(f"Processing error: {e}")
@@ -624,93 +586,89 @@ class ProcessingWorker(QThread):
             return None
     
     def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm):
-        """Process a stem into individual samples"""
+        """Process a stem into individual samples, with improved one-shot detection for bass/other."""
         try:
             # Convert to mono for sample detection
             if len(audio_data.shape) > 1:
                 audio_mono = np.mean(audio_data, axis=0)
             else:
                 audio_mono = audio_data
-            
-            print(f"Processing {stem_name}: audio length {len(audio_mono)/sample_rate:.2f}s, sensitivity {self.sensitivity}dB")
-            
-            # Try different sensitivity levels if no samples are found
-            sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
-            sample_boundaries = []
-            
-            for sensitivity in sensitivities_to_try:
-                sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
-                print(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential samples")
-                
-                if len(sample_boundaries) > 0:
-                    break
-            
-            if len(sample_boundaries) == 0:
-                print(f"No samples detected for {stem_name} even with high sensitivity. Creating single sample.")
-                # Create one sample from the entire audio
-                sample_boundaries = [(0, len(audio_mono))]
-            
+
+            min_duration = 0.05  # 50ms
             sample_count = 0
+            sample_boundaries = []
+            use_onset = stem_name.lower() in ["bass", "other"]
+
+            if use_onset:
+                # Verbose progress for onset detection
+                if hasattr(self, 'status_updated'):
+                    self.status_updated.emit(f"Detecting note onsets in {stem_name} stem...")
+                onset_frames = librosa.onset.onset_detect(y=audio_mono, sr=sample_rate, backtrack=True)
+                onset_samples = librosa.frames_to_samples(onset_frames)
+                # Add end of audio as last boundary
+                if len(onset_samples) == 0 or onset_samples[-1] < len(audio_mono):
+                    onset_samples = np.append(onset_samples, len(audio_mono))
+                # Build (start, end) pairs
+                for i in range(len(onset_samples) - 1):
+                    start = onset_samples[i]
+                    end = onset_samples[i + 1]
+                    if end - start > 0:
+                        sample_boundaries.append((start, end))
+                if hasattr(self, 'status_updated'):
+                    self.status_updated.emit(f"Found {len(sample_boundaries)} note onsets in {stem_name} stem.")
+            else:
+                # Try different sensitivity levels if no samples are found
+                sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
+                for sensitivity in sensitivities_to_try:
+                    sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential samples in {stem_name}.")
+                    if len(sample_boundaries) > 0:
+                        break
+                if len(sample_boundaries) == 0:
+                    sample_boundaries = [(0, len(audio_mono))]
+
+            total_samples = len(sample_boundaries)
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
                     break
-                
                 # Extract sample
                 if len(audio_data.shape) > 1:
                     sample_audio = audio_data[:, start:end]
                 else:
                     sample_audio = audio_data[start:end]
-                
                 # Skip very short samples (unless it's the only sample)
                 sample_duration = sample_audio.shape[-1] / sample_rate
-                if sample_duration < 0.01 and len(sample_boundaries) > 1:  # Less than 10ms
-                    print(f"Skipping sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                if sample_duration < min_duration and total_samples > 1:
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                     continue
-                
                 # Skip very quiet samples (unless it's the only sample)
                 sample_rms = np.sqrt(np.mean(sample_audio**2))
-                if sample_rms < 0.001 and len(sample_boundaries) > 1:  # Very quiet
-                    print(f"Skipping sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                if sample_rms < 0.001 and total_samples > 1:
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
                     continue
-                
-                print(f"Processing sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
-                
+                # Verbose progress for each sample
+                if hasattr(self, 'status_updated'):
+                    self.status_updated.emit(f"Saving {stem_name} sample {i+1}/{total_samples} (duration: {sample_duration:.2f}s)...")
+                if hasattr(self, 'progress_updated'):
+                    self.progress_updated.emit(40 + int(50 * (i+1) / max(1, total_samples)))
                 # Generate filename
                 filename_parts = [f"{stem_name.capitalize()}_{i+1:03d}"]
-                
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
-                
-                # Detect pitch if requested
                 if self.detect_pitch:
                     pitch = self.pitch_detector.detect_pitch(sample_audio, sample_rate)
                     if pitch and pitch != "N/A":
                         filename_parts.append(pitch)
-                
-                # Classify drums if requested and this is a drums stem
-                if self.classify_drums and stem_name == "drums":
-                    drum_type = self.drum_classifier.classify_sample(sample_audio, sample_rate)
-                    if drum_type != "unknown":
-                        # Create subdirectory for drum type
-                        drum_type_dir = os.path.join(output_dir, drum_type)
-                        os.makedirs(drum_type_dir, exist_ok=True)
-                        sample_dir = drum_type_dir
-                    else:
-                        sample_dir = output_dir
-                else:
-                    sample_dir = output_dir
-                
-                # Create final filename
                 filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
-                filepath = os.path.join(sample_dir, filename)
-                
-                # Save sample
+                filepath = os.path.join(output_dir, filename)
                 self.save_audio_sample(sample_audio, sample_rate, filepath)
                 sample_count += 1
-            
-            print(f"Successfully created {sample_count} samples for {stem_name}")
+            if hasattr(self, 'status_updated'):
+                self.status_updated.emit(f"Successfully created {sample_count} samples for {stem_name}.")
             return sample_count
-                
         except Exception as e:
             print(f"Error processing stem {stem_name}: {e}")
             import traceback
