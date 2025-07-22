@@ -1,2 +1,5 @@
 # Ignore build artifacts
-build/ 
+build/
+
+# Ignore BFG Repo-Cleaner
+bfg.jar 

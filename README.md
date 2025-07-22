@@ -2,17 +2,6 @@
 
 ![Version](https://img.shields.io/badge/version-0.0.1-blue)
 
-**Current Version:** 0.0.1
-
----
-
-## Versioning
-
-This project uses [Semantic Versioning](https://semver.org/) in the format `MAJOR.MINOR.PATCH`.
-- **Current version:** `0.0.1`
-- The version is defined in `MagicSampleDemucs.py` as `__version__ = '0.0.1'`
-- Update the version with each release or significant change.
-
 ---
 
 # MagicSample Demucs Version
