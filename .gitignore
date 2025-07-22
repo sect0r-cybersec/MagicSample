@@ -6,3 +6,5 @@ bfg.jar
 
 # Ignore Python cache
 __pycache__/ 
+
+.venv/

@@ -862,7 +862,7 @@ class ProcessingWorker(QThread):
 def main():
     """Main application entry point"""
     app = QApplication(sys.argv)
-    
+    app.setWindowIcon(QIcon('build/MagicSample_icon.ico'))
     # Set application style
     app.setStyle('Fusion')
     
