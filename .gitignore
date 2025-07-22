@@ -1,5 +1,6 @@
-# Ignore build artifacts
-build/
+# Ignore built files (too big to commit)
+build/build/
+build/dist/
 
 # Ignore BFG Repo-Cleaner
 bfg.jar
@@ -7,4 +8,6 @@ bfg.jar
 # Ignore Python cache
 __pycache__/ 
 
+# Ignore venv stuff
 .venv/
+
