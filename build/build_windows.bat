@@ -85,7 +85,7 @@ if errorlevel 1 (
 
 REM Build with PyInstaller using Python 3.11
 cd /d "%PROJECT_ROOT%"
-python3.11 -m PyInstaller --onefile --name MagicSample --icon "%ICONFILE%" --distpath build/dist --workpath build/build --specpath build MagicSample.py
+python3.11 -m PyInstaller --onefile --name MagicSample --icon "%ICONFILE%" --distpath build/dist --workpath build/build --specpath build --add-data "%PROJECT_ROOT%\config.json;." --add-data "%PROJECT_ROOT%\venv\Lib\site-packages\demucs\remote\files.txt;demucs/remote" --add-data "C:\Users\harri\.cache\torch\hub\checkpoints\955717e8-8726e21a.th;torch/hub/checkpoints" MagicSample.py
 if errorlevel 1 (
     echo [ERROR] PyInstaller build failed.
     pause

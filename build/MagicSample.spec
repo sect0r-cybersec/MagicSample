@@ -5,7 +5,7 @@ a = Analysis(
     ['..\\MagicSample.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('C:\\Users\\harri\\Documents\\Cursor\\Magic sample\\MagicSample\\build\\..\\config.json', '.'), ('C:\\Users\\harri\\Documents\\Cursor\\Magic sample\\MagicSample\\build\\..\\venv\\Lib\\site-packages\\demucs\\remote\\files.txt', 'demucs/remote'), ('C:\\Users\\harri\\.cache\\torch\\hub\\checkpoints\\955717e8-8726e21a.th', 'torch/hub/checkpoints')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

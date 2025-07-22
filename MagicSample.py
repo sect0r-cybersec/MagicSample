@@ -14,8 +14,8 @@ __version__ = '0.0.2'
 import warnings
 warnings.filterwarnings("ignore")
 
-import os
 import sys
+import os
 import time
 import json
 from pathlib import Path
@@ -48,6 +48,12 @@ try:
     import pyin
 except ImportError:
     print("Warning: pyin not available, using librosa for pitch detection")
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath('.'), relative_path)
 
 class DrumClassifier:
     """Classifies drum samples into different categories"""

@@ -9,5 +9,7 @@ bfg.jar
 __pycache__/ 
 
 # Ignore venv stuff
-.venv/
+venv/
+
+build/ 
 
