@@ -1,0 +1,22 @@
+# Requirements for MagicSample Demucs Version
+# Audio processing libraries
+librosa==0.10.2.post1
+numpy==1.26.4
+soundfile==0.13.1
+
+# GUI framework
+PyQt6==6.8.1
+
+# Demucs for stem separation
+demucs==4.0.0
+
+# Additional audio processing
+scipy==1.11.4
+torch==2.1.0
+torchaudio==2.1.0
+
+# Pitch detection
+pyin==0.0.1
+
+# File handling
+pathlib 

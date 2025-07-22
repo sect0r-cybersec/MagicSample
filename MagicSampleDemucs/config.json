@@ -1,0 +1,52 @@
+{
+  "default_settings": {
+    "split_stems": true,
+    "detect_bpm": true,
+    "detect_pitch": true,
+    "classify_drums": true,
+    "sensitivity": 15,
+    "output_format": "wav",
+    "drumkit_name": "MyDrumkit",
+    "demucs_model": "htdemucs",
+    "sample_rate": 44100
+  },
+  "drum_classification": {
+    "hihat_threshold": {
+      "spectral_centroid_min": 4000,
+      "zero_crossing_rate_min": 0.1
+    },
+    "kick_threshold": {
+      "spectral_centroid_max": 1000,
+      "rms_energy_min": 0.3
+    },
+    "snare_threshold": {
+      "spectral_centroid_min": 1000,
+      "spectral_centroid_max": 3000,
+      "spectral_bandwidth_min": 2000
+    },
+    "tom_threshold": {
+      "spectral_centroid_max": 2000,
+      "spectral_rolloff_max": 3000
+    },
+    "clap_threshold": {
+      "zero_crossing_rate_min": 0.15
+    }
+  },
+  "pitch_detection": {
+    "min_frequency": 50,
+    "max_frequency": 2000,
+    "reference_frequency": 440.0
+  },
+  "sample_detection": {
+    "min_duration_ms": 10,
+    "sensitivity_range": {
+      "min": 5,
+      "max": 30,
+      "default": 15
+    }
+  },
+  "supported_formats": {
+    "input": ["wav", "mp3", "flac", "ogg", "m4a"],
+    "output": ["wav", "flac", "ogg"]
+  }
+} 

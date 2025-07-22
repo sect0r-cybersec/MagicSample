@@ -108,7 +108,7 @@ def write_waveform_to_file(waveform, sample_rate, filename):
 
 app = QApplication([])
 window = QWidget()
-window.setWindowTitle("OctaChop")
+window.setWindowTitle("MagicSample")
 
 ##split_to_stems(input_path, stems_path)
 
