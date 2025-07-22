@@ -5,8 +5,8 @@ echo "==========================="
 echo
 
 # Check if we're in the right directory
-if [ ! -f "MagicSampleDemucs.py" ]; then
-    echo "Error: MagicSampleDemucs.py not found!"
+if [ ! -f "MagicSample.py" ]; then
+    echo "Error: MagicSample.py not found!"
     echo "Please run this script from the MagicSample folder."
     exit 1
 fi
@@ -55,4 +55,4 @@ fi
 
 echo
 echo "Starting MagicSample Demucs..."
-python3 MagicSampleDemucs.py 
+python3 MagicSample.py 

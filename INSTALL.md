@@ -66,14 +66,14 @@ python test_installation.py
 
 Once installation is successful:
 ```bash
-python MagicSampleDemucs.py
+python MagicSample.py
 ```
 
 ## Project Structure
 
 ```
 MagicSample/
-├── MagicSampleDemucs.py      # Main application
+├── MagicSample.py      # Main application
 ├── requirements.txt          # Dependencies
 ├── install_windows.bat       # Windows installation script
 ├── install_conda.bat         # Conda installation script

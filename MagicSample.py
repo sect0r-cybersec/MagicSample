@@ -1,7 +1,6 @@
 #!/usr/bin/env python3.10
 """
-MagicSample Demucs Version
-__version__ = '0.0.1'
+MagicSample
 Enhanced audio sample extraction and drumkit creation tool
 
 This version uses Demucs for stem separation and includes:
@@ -10,6 +9,7 @@ This version uses Demucs for stem separation and includes:
 - Drum classification (hi-hat, snare, bass drum, etc.)
 - Organized drumkit folder structure
 """
+__version__ = '0.0.2'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -252,7 +252,7 @@ class MainWindow(QWidget):
     
     def setup_ui(self):
         """Setup the user interface"""
-        self.setWindowTitle("MagicSample Demucs")
+        self.setWindowTitle("MagicSample")
         self.setGeometry(100, 100, 800, 600)  # More compact size
         
         # Main layout with centered alignment
@@ -262,7 +262,7 @@ class MainWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         
         # Title
-        title_label = QLabel("MagicSample Demucs")
+        title_label = QLabel("MagicSample")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_font = QFont()
         title_font.setPointSize(16)
@@ -552,7 +552,7 @@ class ProcessingWorker(QThread):
                         # Process stem according to its type
                         if stem_name == "vocals":
                             # Save vocals as whole file (no sample splitting)
-                            vocals_filename = f"VOCALS_{bpm}BPM.{self.output_format.upper()}" if bpm else f"VOCALS.{self.output_format.upper()}"
+                            vocals_filename = f"Vocals_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals.{self.output_format.upper()}"
                             vocals_path = os.path.join(stem_dir, vocals_filename)
                             self.save_audio_sample(stem_audio, stem_sr, vocals_path)
                             print(f"Saved vocals as whole file: {vocals_filename}")
@@ -590,11 +590,9 @@ class ProcessingWorker(QThread):
                 sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
                 print(f"Created {sample_count} samples from whole file")
             
-            self.status_updated.emit("Creating drumkit metadata...")
-            self.progress_updated.emit(90)
-            
-            # Create metadata file
-            self.create_drumkit_metadata(drumkit_path, bpm)
+            # self.status_updated.emit("Creating drumkit metadata...")
+            # self.progress_updated.emit(90)
+            # self.create_drumkit_metadata(drumkit_path, bpm)
             
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")

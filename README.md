@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.1-blue)
+![Version](https://img.shields.io/badge/version-0.0.2-blue)
 
 ---
 
@@ -64,14 +64,14 @@ cd build
 
 1. **Install dependencies** using one of the methods above
 2. **Run the application:**
-   - Python version: `python MagicSampleDemucs.py`
+   - Python version: `python MagicSample.py`
    - Standalone: `./dist/MagicSample` (Linux/macOS) or `dist\MagicSample.exe` (Windows)
 
 ## Project Structure
 
 ```
 MagicSample/
-├── MagicSampleDemucs.py      # Main application
+├── MagicSample.py      # Main application
 ├── requirements.txt          # Python dependencies
 ├── config.json              # Application configuration
 ├── test_installation.py     # Dependency checker
@@ -91,7 +91,7 @@ MagicSample/
 
 ## Usage
 
-1. **Run the application**: `python MagicSampleDemucs.py`
+1. **Run the application**: `python MagicSample.py`
 2. **Select Input File**: Choose an audio file (WAV, MP3, FLAC, OGG, M4A)
 3. **Choose Output Directory**: Select where to save the drumkit
 4. **Configure Options**:

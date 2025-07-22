@@ -4,8 +4,8 @@ echo ===========================
 echo.
 
 REM Check if we're in the right directory
-if not exist "MagicSampleDemucs.py" (
-    echo Error: MagicSampleDemucs.py not found!
+if not exist "MagicSample.py" (
+    echo Error: MagicSample.py not found!
     echo Please run this script from the MagicSample folder.
     pause
     exit /b 1
@@ -53,6 +53,6 @@ if exist "test_installation.py" (
 
 echo.
 echo Starting MagicSample Demucs...
-python MagicSampleDemucs.py
+python MagicSample.py
 
 pause 
