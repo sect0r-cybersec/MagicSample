@@ -1,5 +1,0 @@
-Defaulting to user installation because normal site-packages is not writeable
-Requirement already satisfied: soundfile in c:\users\harri\appdata\local\packages\pythonsoftwarefoundation.python.3.13_qbz5n2kfra8p0\localcache\local-packages\python313\site-packages (0.13.1)
-Requirement already satisfied: cffi>=1.0 in c:\users\harri\appdata\local\packages\pythonsoftwarefoundation.python.3.13_qbz5n2kfra8p0\localcache\local-packages\python313\site-packages (from soundfile) (1.17.1)
-Requirement already satisfied: numpy in c:\users\harri\appdata\local\packages\pythonsoftwarefoundation.python.3.13_qbz5n2kfra8p0\localcache\local-packages\python313\site-packages (from soundfile) (2.2.6)
-Requirement already satisfied: pycparser in c:\users\harri\appdata\local\packages\pythonsoftwarefoundation.python.3.13_qbz5n2kfra8p0\localcache\local-packages\python313\site-packages (from cffi>=1.0->soundfile) (2.22)

@@ -68,25 +68,28 @@ The tool creates a drumkit folder with the following structure:
 ```
 MyDrumkit/
 ├── metadata.json          # Processing information and settings
-├── drums/                 # Drum samples (split into subfolders)
-│   ├── kick/             # Kick drum samples (low frequency)
-│   ├── percs/            # Percussion samples (mid frequency: snares, toms, etc.)
-│   └── hihats/           # Hi-hat samples (high frequency)
-├── bass/                  # Bass samples (individual samples)
-├── vocals/                # Vocal stem (whole acapella file)
-└── other/                 # Other instrument samples (individual samples)
+├── DRUMS/                 # Drum samples (split into subfolders)
+│   ├── KICKS/            # Kick drum samples (low frequency: 40-250 Hz)
+│   ├── SNARES/           # Snare drum samples (broad range: 120 Hz-10 kHz)
+│   ├── CLAPS/            # Clap samples (mid-high frequency: 800 Hz-10 kHz)
+│   └── HI_HATS/          # Hi-hat samples (high frequency: 5-10 kHz)
+├── BASS/                  # Bass samples (individual samples)
+├── VOCALS/                # Vocal stem (whole acapella file)
+└── OTHER/                 # Other instrument samples (individual samples)
 ```
 
 ## Sample Naming Convention
 
 Samples are automatically named with the following format:
-- `{instrument}_{number}_{bpm}bpm_{pitch}.{format}`
+- `{INSTRUMENT}_{number}_{BPM}BPM_{pitch}.{FORMAT}`
 
 Examples:
-- `kick_001_120bpm_C4.wav`
-- `hihat_002_120bpm_N/A.wav`
-- `bass_001_120bpm_A2.wav`
-- `vocals_120bpm.wav` (whole acapella file)
+- `KICK_001_120BPM_C4.WAV`
+- `HIHAT_002_120BPM_N/A.WAV`
+- `SNARE_003_120BPM_A2.WAV`
+- `CLAP_001_120BPM_N/A.WAV`
+- `BASS_001_120BPM_A2.WAV`
+- `VOCALS_120BPM.WAV` (whole acapella file)
 
 ## Installation Issues?
 

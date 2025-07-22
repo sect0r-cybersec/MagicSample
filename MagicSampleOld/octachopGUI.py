@@ -130,7 +130,7 @@ class Window(QWidget):
         self.thread.finished.connect(lambda: self.disableInputs(False))
 
     def setup_ui(self):
-        self.setWindowTitle("MagicSample")
+        self.setWindowTitle("OctaChop")
         self.setWindowIcon(QIcon("icons/octopus.png"))
 
         self.valid_ext = ("wav", "flac", "ogg")

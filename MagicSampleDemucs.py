@@ -252,96 +252,135 @@ class MainWindow(QWidget):
     def setup_ui(self):
         """Setup the user interface"""
         self.setWindowTitle("MagicSample Demucs")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 800, 600)  # More compact size
         
-        # Main layout
+        # Main layout with centered alignment
         layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Title
+        title_label = QLabel("MagicSample Demucs")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        layout.addWidget(title_label)
         
         # File selection section
         file_group = QGroupBox("File Selection")
-        file_layout = QHBoxLayout()
+        file_group.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        file_layout = QGridLayout()
+        file_layout.setSpacing(10)
         
         # Input file selection
-        input_layout = QVBoxLayout()
-        input_layout.addWidget(QLabel("Input Audio File:"))
+        input_label = QLabel("Input Audio File:")
+        input_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        file_layout.addWidget(input_label, 0, 0)
+        
         self.input_path_edit = QLineEdit()
         self.input_path_edit.setPlaceholderText("Select input audio file...")
-        input_layout.addWidget(self.input_path_edit)
+        self.input_path_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        file_layout.addWidget(self.input_path_edit, 0, 1)
         
         input_btn = QPushButton("Browse")
         input_btn.clicked.connect(self.select_input_file)
-        input_layout.addWidget(input_btn)
-        
-        file_layout.addLayout(input_layout)
+        input_btn.setFixedWidth(80)
+        file_layout.addWidget(input_btn, 0, 2)
         
         # Output directory selection
-        output_layout = QVBoxLayout()
-        output_layout.addWidget(QLabel("Output Directory:"))
+        output_label = QLabel("Output Directory:")
+        output_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        file_layout.addWidget(output_label, 1, 0)
+        
         self.output_path_edit = QLineEdit()
         self.output_path_edit.setPlaceholderText("Select output directory...")
-        output_layout.addWidget(self.output_path_edit)
+        self.output_path_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        file_layout.addWidget(self.output_path_edit, 1, 1)
         
         output_btn = QPushButton("Browse")
         output_btn.clicked.connect(self.select_output_dir)
-        output_layout.addWidget(output_btn)
+        output_btn.setFixedWidth(80)
+        file_layout.addWidget(output_btn, 1, 2)
         
-        file_layout.addLayout(output_layout)
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
         
         # Options section
         options_group = QGroupBox("Processing Options")
+        options_group.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout = QGridLayout()
+        options_layout.setSpacing(8)
         
-        # Checkboxes
-        self.stems_checkbox = QCheckBox("Split to stems")
+        # Checkboxes in a more compact layout
+        self.stems_checkbox = QCheckBox("Split to Stems")
         self.stems_checkbox.setChecked(True)
+        self.stems_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.stems_checkbox, 0, 0)
         
         self.bpm_checkbox = QCheckBox("Detect BPM")
         self.bpm_checkbox.setChecked(True)
+        self.bpm_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
         options_layout.addWidget(self.bpm_checkbox, 0, 1)
         
-        self.pitch_checkbox = QCheckBox("Detect pitch")
+        self.pitch_checkbox = QCheckBox("Detect Pitch")
         self.pitch_checkbox.setChecked(True)
-        options_layout.addWidget(self.pitch_checkbox, 0, 2)
+        self.pitch_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(self.pitch_checkbox, 1, 0)
         
-        self.drum_classify_checkbox = QCheckBox("Classify drums")
+        self.drum_classify_checkbox = QCheckBox("Classify Drums")
         self.drum_classify_checkbox.setChecked(True)
-        options_layout.addWidget(self.drum_classify_checkbox, 0, 3)
+        self.drum_classify_checkbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(self.drum_classify_checkbox, 1, 1)
         
         # Sensitivity slider
-        options_layout.addWidget(QLabel("Sample Detection Sensitivity:"), 1, 0)
+        sensitivity_label = QLabel("Sample Detection Sensitivity:")
+        sensitivity_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(sensitivity_label, 2, 0, 1, 2)
+        
         self.sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
         self.sensitivity_slider.setRange(5, 30)
         self.sensitivity_slider.setValue(15)
         self.sensitivity_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.sensitivity_slider.setTickInterval(5)
-        options_layout.addWidget(self.sensitivity_slider, 1, 1, 1, 3)
+        options_layout.addWidget(self.sensitivity_slider, 3, 0, 1, 2)
         
-        # Output format
-        options_layout.addWidget(QLabel("Output Format:"), 2, 0)
+        # Output format and drumkit name in a row
+        format_label = QLabel("Output Format:")
+        format_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(format_label, 4, 0)
+        
         self.format_combo = QComboBox()
-        self.format_combo.addItems(['wav', 'flac', 'ogg'])
-        options_layout.addWidget(self.format_combo, 2, 1)
+        self.format_combo.addItems(['WAV', 'FLAC', 'OGG'])
+        self.format_combo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(self.format_combo, 4, 1)
         
-        # Drumkit name
-        options_layout.addWidget(QLabel("Drumkit Name:"), 2, 2)
+        drumkit_label = QLabel("Drumkit Name:")
+        drumkit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(drumkit_label, 5, 0)
+        
         self.drumkit_name_edit = QLineEdit()
         self.drumkit_name_edit.setPlaceholderText("MyDrumkit")
-        options_layout.addWidget(self.drumkit_name_edit, 2, 3)
+        self.drumkit_name_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(self.drumkit_name_edit, 5, 1)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
         
         # Progress section
         progress_group = QGroupBox("Progress")
+        progress_group.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout = QVBoxLayout()
+        progress_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.progress_bar = QProgressBar()
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.progress_bar)
         
         self.status_label = QLabel("Ready")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.status_label)
         
         progress_group.setLayout(progress_layout)
@@ -349,14 +388,18 @@ class MainWindow(QWidget):
         
         # Control buttons
         button_layout = QHBoxLayout()
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        button_layout.setSpacing(20)
         
         self.start_button = QPushButton("Start Processing")
         self.start_button.clicked.connect(self.start_processing)
+        self.start_button.setFixedWidth(150)
         button_layout.addWidget(self.start_button)
         
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_processing)
         self.stop_button.setEnabled(False)
+        self.stop_button.setFixedWidth(100)
         button_layout.addWidget(self.stop_button)
         
         layout.addLayout(button_layout)
@@ -507,13 +550,13 @@ class ProcessingWorker(QThread):
                         print(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         
                         # Create stem directory
-                        stem_dir = os.path.join(drumkit_path, stem_name)
+                        stem_dir = os.path.join(drumkit_path, stem_name.upper())
                         os.makedirs(stem_dir, exist_ok=True)
                         
                         # Process stem according to its type
                         if stem_name == "vocals":
                             # Save vocals as whole file (no sample splitting)
-                            vocals_filename = f"vocals_{bpm}bpm.{self.output_format}" if bpm else f"vocals.{self.output_format}"
+                            vocals_filename = f"VOCALS_{bpm}BPM.{self.output_format.upper()}" if bpm else f"VOCALS.{self.output_format.upper()}"
                             vocals_path = os.path.join(stem_dir, vocals_filename)
                             self.save_audio_sample(stem_audio, stem_sr, vocals_path)
                             print(f"Saved vocals as whole file: {vocals_filename}")
@@ -524,7 +567,7 @@ class ProcessingWorker(QThread):
                             
                         else:
                             # Process other stems (bass, other) as individual samples
-                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name, bpm)
+                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.upper(), bpm)
                             print(f"Created {sample_count} samples for {stem_name}")
                     
                     # Clean up temporary files
@@ -536,19 +579,19 @@ class ProcessingWorker(QThread):
                     self.status_updated.emit(f"Stem separation failed: {str(e)}")
                     # Fall back to processing the whole file
                     self.status_updated.emit("Falling back to processing whole file...")
-                    samples_dir = os.path.join(drumkit_path, "samples")
+                    samples_dir = os.path.join(drumkit_path, "SAMPLES")
                     os.makedirs(samples_dir, exist_ok=True)
-                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "sample", bpm)
+                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "SAMPLE", bpm)
                     print(f"Created {sample_count} samples from whole file")
             else:
                 # Process entire file as one stem
                 self.status_updated.emit("Processing audio into samples...")
                 self.progress_updated.emit(40)
                 
-                samples_dir = os.path.join(drumkit_path, "samples")
+                samples_dir = os.path.join(drumkit_path, "SAMPLES")
                 os.makedirs(samples_dir, exist_ok=True)
                 
-                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "sample", bpm)
+                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "SAMPLE", bpm)
                 print(f"Created {sample_count} samples from whole file")
             
             self.status_updated.emit("Creating drumkit metadata...")
@@ -642,7 +685,7 @@ class ProcessingWorker(QThread):
                 filename_parts = [f"{stem_name}_{i+1:03d}"]
                 
                 if bpm:
-                    filename_parts.append(f"{bpm}bpm")
+                    filename_parts.append(f"{bpm}BPM")
                 
                 # Detect pitch if requested
                 if self.detect_pitch:
@@ -664,7 +707,7 @@ class ProcessingWorker(QThread):
                     sample_dir = output_dir
                 
                 # Create final filename
-                filename = "_".join(filename_parts) + f".{self.output_format}"
+                filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(sample_dir, filename)
                 
                 # Save sample
@@ -681,7 +724,7 @@ class ProcessingWorker(QThread):
             return 0  # Return 0 samples processed on error
     
     def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm):
-        """Process drums into frequency-based subfolders: kick, percs, hi-hats"""
+        """Process drums into frequency-based subfolders: KICKS, SNARES, CLAPS, HI_HATS"""
         try:
             # Convert to mono for sample detection
             if len(audio_data.shape) > 1:
@@ -708,12 +751,14 @@ class ProcessingWorker(QThread):
                 sample_boundaries = [(0, len(audio_mono))]
             
             # Create subfolders for different drum types
-            kick_dir = os.path.join(output_dir, "kick")
-            percs_dir = os.path.join(output_dir, "percs")
-            hihats_dir = os.path.join(output_dir, "hihats")
+            kicks_dir = os.path.join(output_dir, "KICKS")
+            snares_dir = os.path.join(output_dir, "SNARES")
+            claps_dir = os.path.join(output_dir, "CLAPS")
+            hihats_dir = os.path.join(output_dir, "HI_HATS")
             
-            os.makedirs(kick_dir, exist_ok=True)
-            os.makedirs(percs_dir, exist_ok=True)
+            os.makedirs(kicks_dir, exist_ok=True)
+            os.makedirs(snares_dir, exist_ok=True)
+            os.makedirs(claps_dir, exist_ok=True)
             os.makedirs(hihats_dir, exist_ok=True)
             
             sample_count = 0
@@ -746,21 +791,24 @@ class ProcessingWorker(QThread):
                 print(f"Classified as: {drum_type}")
                 
                 # Determine target directory
-                if drum_type == "kick":
-                    target_dir = kick_dir
-                    prefix = "kick"
-                elif drum_type == "hihat":
+                if drum_type == "KICKS":
+                    target_dir = kicks_dir
+                    prefix = "KICK"
+                elif drum_type == "HI_HATS":
                     target_dir = hihats_dir
-                    prefix = "hihat"
-                else:  # percs or unknown
-                    target_dir = percs_dir
-                    prefix = "perc"
+                    prefix = "HIHAT"
+                elif drum_type == "CLAPS":
+                    target_dir = claps_dir
+                    prefix = "CLAP"
+                else:  # SNARES
+                    target_dir = snares_dir
+                    prefix = "SNARE"
                 
                 # Generate filename
                 filename_parts = [f"{prefix}_{i+1:03d}"]
                 
                 if bpm:
-                    filename_parts.append(f"{bpm}bpm")
+                    filename_parts.append(f"{bpm}BPM")
                 
                 # Detect pitch if requested
                 if self.detect_pitch:
@@ -769,7 +817,7 @@ class ProcessingWorker(QThread):
                         filename_parts.append(pitch)
                 
                 # Create final filename
-                filename = "_".join(filename_parts) + f".{self.output_format}"
+                filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(target_dir, filename)
                 
                 # Save sample
@@ -777,9 +825,10 @@ class ProcessingWorker(QThread):
                 sample_count += 1
             
             print(f"Successfully created {sample_count} drum samples:")
-            print(f"  - Kick: {len(os.listdir(kick_dir))} samples")
-            print(f"  - Percs: {len(os.listdir(percs_dir))} samples")
-            print(f"  - Hi-hats: {len(os.listdir(hihats_dir))} samples")
+            print(f"  - KICKS: {len(os.listdir(kicks_dir))} samples")
+            print(f"  - SNARES: {len(os.listdir(snares_dir))} samples")
+            print(f"  - CLAPS: {len(os.listdir(claps_dir))} samples")
+            print(f"  - HI_HATS: {len(os.listdir(hihats_dir))} samples")
             return sample_count
                 
         except Exception as e:
@@ -789,7 +838,7 @@ class ProcessingWorker(QThread):
             return 0
     
     def classify_drum_by_frequency(self, audio_data, sample_rate):
-        """Classify drum sample based on frequency characteristics"""
+        """Classify drum sample based on frequency characteristics using professional frequency ranges"""
         try:
             # Convert to mono if stereo
             if len(audio_data.shape) > 1:
@@ -821,20 +870,35 @@ class ProcessingWorker(QThread):
             print(f"  RMS energy: {avg_rms:.4f}")
             print(f"  Zero crossing rate: {avg_zcr:.4f}")
             
-            # Classification logic based on frequency characteristics
-            if avg_centroid < 1000 and avg_rms > 0.3:
+            # Classification logic based on professional frequency ranges from the image:
+            # Kick Drum: 40-100 Hz (sub), 100-250 Hz (body/punch), 2-5 kHz (click)
+            # Snare Drum: 120-250 Hz (body), 500-3 kHz (crack), 5-10 kHz (snap/sizzle)
+            # Claps: 800 Hz-3 kHz (body), 5-10 kHz (brightness)
+            # Hi-Hats: 5-10 kHz (brightness/sizzle), sometimes 300-1 kHz (low-end bleed)
+            
+            if avg_centroid < 200 and avg_rms > 0.2:
                 # Low frequency, high energy = kick drum
-                return "kick"
-            elif avg_centroid > 4000 and avg_zcr > 0.1:
+                # Kick drums dominate the low-end; sub-bass below 60 Hz, thump around 80-100 Hz
+                return "KICKS"
+            elif avg_centroid > 5000 and avg_zcr > 0.08:
                 # High frequency, high zero crossing rate = hi-hat
-                return "hihat"
+                # Hi-hats mostly occupy high-frequency range and provide shimmer
+                return "HI_HATS"
+            elif avg_centroid > 6000 and avg_zcr > 0.05:
+                # Very high frequency = clap (brightness)
+                # Claps are brighter and live mostly in mids and highs
+                return "CLAPS"
+            elif (avg_centroid > 120 and avg_centroid < 3000) and avg_bandwidth > 1000:
+                # Broad frequency range with significant bandwidth = snare
+                # Snares have broad range; power in low mids, presence in high mids
+                return "SNARES"
             else:
-                # Mid frequency = percussion (snare, tom, etc.)
-                return "percs"
+                # Default to snares for other percussion
+                return "SNARES"
                 
         except Exception as e:
             print(f"Classification error: {e}")
-            return "percs"  # Default to percussion
+            return "SNARES"  # Default to snares
     
     def save_audio_sample(self, audio_data, sample_rate, filepath):
         """Save audio sample to file"""
