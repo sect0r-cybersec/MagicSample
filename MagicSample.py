@@ -174,7 +174,12 @@ class DemucsProcessor:
     def load_model(self, model_name: str = "htdemucs"):
         """Load the Demucs model"""
         try:
-            self.model = get_model(model_name)
+            # Patch: If running as frozen and model_name is 'htdemucs', load by path
+            if model_name == "htdemucs":
+                model_path = resource_path("torch/hub/checkpoints/955717e8-8726e21a.th")
+                self.model = get_model(model_path)
+            else:
+                self.model = get_model(model_name)
             self.model.to(self.device)
             print(f"Loaded Demucs model: {model_name}")
         except Exception as e:
