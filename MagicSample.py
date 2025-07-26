@@ -1620,6 +1620,41 @@ class ProcessingWorker(QThread):
             print(f"BPM detection error: {e}")
             return None
     
+    def get_next_sample_number(self, output_dir, stem_name):
+        """Get the next sequential sample number for a given folder"""
+        try:
+            # Count existing files in the directory
+            if not os.path.exists(output_dir):
+                return 1
+            
+            existing_files = [f for f in os.listdir(output_dir) 
+                            if f.startswith(f"{stem_name.capitalize()}_") and f.endswith(f".{self.output_format.upper()}")]
+            
+            if not existing_files:
+                return 1
+            
+            # Extract numbers from existing filenames
+            numbers = []
+            for filename in existing_files:
+                # Extract number from filename like "Perc_001_2on_101BPM_C4.WAV"
+                parts = filename.split('_')
+                if len(parts) >= 2:
+                    try:
+                        # Get the number part (e.g., "001" from "Perc_001")
+                        number_str = parts[1]
+                        number = int(number_str)
+                        numbers.append(number)
+                    except (ValueError, IndexError):
+                        continue
+            
+            # Return next number
+            return max(numbers) + 1 if numbers else 1
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error getting next sample number: {e}")
+            return 1
+    
     def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm, file_identifier=""):
         """Process a stem into individual samples, with improved one-shot detection for bass/other."""
         try:
@@ -1721,8 +1756,9 @@ class ProcessingWorker(QThread):
                     self.status_updated.emit(f"Saving {stem_name} sample {i+1}/{total_samples} (duration: {sample_duration:.2f}s)...")
                 if hasattr(self, 'progress_updated'):
                     self.progress_updated.emit(40 + int(50 * (i+1) / max(1, total_samples)))
-                # Generate filename with timeout handling
-                filename_parts = [f"{stem_name.capitalize()}_{i+1:03d}"]
+                # Generate filename with sequential numbering
+                next_number = self.get_next_sample_number(output_dir, stem_name)
+                filename_parts = [f"{stem_name.capitalize()}_{next_number:03d}"]
                 if file_identifier:
                     filename_parts.append(file_identifier)
                 if bpm:
@@ -1907,8 +1943,9 @@ class ProcessingWorker(QThread):
                     target_dir = perc_dir
                     prefix = "Perc"
                 
-                # Generate filename with timeout handling
-                filename_parts = [f"{prefix}_{i+1:03d}"]
+                # Generate filename with sequential numbering
+                next_number = self.get_next_sample_number(target_dir, prefix)
+                filename_parts = [f"{prefix}_{next_number:03d}"]
                 if file_identifier:
                     filename_parts.append(file_identifier)
                 
