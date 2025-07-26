@@ -682,24 +682,33 @@ class MainWindow(QWidget):
         self.setWindowTitle("MagicSample")
         self.setGeometry(100, 100, 1000, 700)  # Larger size for tabs
         
-        # Set application icon
-        icon_path = resource_path("MagicSample_icon.ico")
+        # Set application icon - use absolute path to ensure it loads
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(current_dir, "MagicSample_icon.ico")
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-            print(f"Application icon loaded from: {icon_path}")
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
+                print(f"Application icon loaded successfully from: {icon_path}")
+            else:
+                print(f"Failed to load icon from: {icon_path} - icon is null")
         else:
             print(f"Application icon not found at: {icon_path}")
             # Try alternative paths
             alt_paths = [
-                "MagicSample_icon.ico",
-                "icon.ico",
-                "MagicSample.ico"
+                os.path.join(current_dir, "icon.ico"),
+                os.path.join(current_dir, "MagicSample.ico")
             ]
             for alt_path in alt_paths:
                 if os.path.exists(alt_path):
-                    self.setWindowIcon(QIcon(alt_path))
-                    print(f"Application icon loaded from alternative path: {alt_path}")
-                    break
+                    icon = QIcon(alt_path)
+                    if not icon.isNull():
+                        self.setWindowIcon(icon)
+                        print(f"Application icon loaded from alternative path: {alt_path}")
+                        break
+                    else:
+                        print(f"Failed to load icon from: {alt_path} - icon is null")
         
         # Main layout with centered alignment
         layout = QVBoxLayout()
@@ -732,19 +741,35 @@ class MainWindow(QWidget):
         file_layout.setSpacing(10)
         
         # Input file selection
-        input_label = QLabel("Input Audio File:")
+        input_label = QLabel("Input Audio Files:")
         input_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         file_layout.addWidget(input_label, 0, 0)
         
-        self.input_path_edit = QLineEdit()
-        self.input_path_edit.setPlaceholderText("Select input audio file...")
-        self.input_path_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        file_layout.addWidget(self.input_path_edit, 0, 1)
+        # Create a list widget to show selected files
+        self.input_files_list = QListWidget()
+        self.input_files_list.setMaximumHeight(100)
+        self.input_files_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        file_layout.addWidget(self.input_files_list, 0, 1)
         
-        input_btn = QPushButton("Browse")
-        input_btn.clicked.connect(self.select_input_file)
+        # Button layout for file operations
+        file_buttons_layout = QVBoxLayout()
+        
+        input_btn = QPushButton("Add Files")
+        input_btn.clicked.connect(self.select_input_files)
         input_btn.setFixedWidth(80)
-        file_layout.addWidget(input_btn, 0, 2)
+        file_buttons_layout.addWidget(input_btn)
+        
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(self.remove_selected_files)
+        remove_btn.setFixedWidth(80)
+        file_buttons_layout.addWidget(remove_btn)
+        
+        clear_btn = QPushButton("Clear All")
+        clear_btn.clicked.connect(self.clear_input_files)
+        clear_btn.setFixedWidth(80)
+        file_buttons_layout.addWidget(clear_btn)
+        
+        file_layout.addLayout(file_buttons_layout, 0, 2)
         
         # Output directory selection
         output_label = QLabel("Output Directory:")
@@ -1186,14 +1211,35 @@ YourDrumkit/
             except Exception as e:
                 self.add_log_message(f"Error saving log: {e}")
     
-    def select_input_file(self):
-        """Select input audio file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Audio File", "", 
+    def select_input_files(self):
+        """Select multiple input audio files"""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Audio Files", "", 
             "Audio Files (*.wav *.mp3 *.flac *.ogg *.m4a)"
         )
-        if file_path:
-            self.input_path_edit.setText(file_path)
+        if file_paths:
+            for file_path in file_paths:
+                # Add file to list if not already present
+                items = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
+                if file_path not in items:
+                    self.input_files_list.addItem(file_path)
+    
+    def remove_selected_files(self):
+        """Remove selected files from the list"""
+        selected_items = self.input_files_list.selectedItems()
+        for item in selected_items:
+            self.input_files_list.takeItem(self.input_files_list.row(item))
+    
+    def clear_input_files(self):
+        """Clear all files from the list"""
+        self.input_files_list.clear()
+    
+    def get_input_files(self):
+        """Get list of all input files"""
+        files = []
+        for i in range(self.input_files_list.count()):
+            files.append(self.input_files_list.item(i).text())
+        return files
     
     def select_output_dir(self):
         """Select output directory"""
@@ -1204,8 +1250,9 @@ YourDrumkit/
     def start_processing(self):
         """Start the audio processing"""
         try:
-            if not self.input_path_edit.text() or not self.output_path_edit.text():
-                QMessageBox.warning(self, "Error", "Please select input file and output directory")
+            input_files = self.get_input_files()
+            if not input_files or not self.output_path_edit.text():
+                QMessageBox.warning(self, "Error", "Please select input files and output directory")
                 return
             
             self.start_button.setEnabled(False)
@@ -1227,7 +1274,7 @@ YourDrumkit/
             
             # Start processing in a separate thread
             self.worker = ProcessingWorker(
-                self.input_path_edit.text(),
+                input_files,
                 self.output_path_edit.text(),
                 self.drumkit_name_edit.text() or "MyDrumkit",
                 self.format_combo.currentText(),
@@ -1311,10 +1358,10 @@ class ProcessingWorker(QThread):
     progress_updated = pyqtSignal(int)
     status_updated = pyqtSignal(str)
     
-    def __init__(self, input_path, output_path, drumkit_name, output_format, 
+    def __init__(self, input_files, output_path, drumkit_name, output_format, 
                  split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms, logger=None):
         super().__init__()
-        self.input_path = input_path
+        self.input_files = input_files if isinstance(input_files, list) else [input_files]
         self.output_path = output_path
         self.drumkit_name = drumkit_name
         self.output_format = output_format
@@ -1383,38 +1430,9 @@ class ProcessingWorker(QThread):
         """Main processing function with improved progress updates."""
         try:
             if self.logger:
-                self.logger.info("Starting audio processing...")
-            self.status_updated.emit("Loading audio file...")
+                self.logger.info(f"Starting audio processing for {len(self.input_files)} files...")
+            self.status_updated.emit(f"Processing {len(self.input_files)} files...")
             self.progress_updated.emit(5)
-            
-            # Load audio file with error handling
-            try:
-                audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
-                if self.logger:
-                    self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-                print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-            except Exception as e:
-                if self.logger:
-                    self.logger.error(f"Failed to load audio file: {e}")
-                self.status_updated.emit(f"Error: Failed to load audio file - {str(e)}")
-                return
-            
-            bpm = None
-            if self.detect_bpm:
-                try:
-                    self.status_updated.emit("Detecting BPM...")
-                    self.progress_updated.emit(10)
-                    if self.logger:
-                        self.logger.info("Detecting BPM...")
-                    bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
-                    if self.logger:
-                        self.logger.info(f"Detected BPM: {bpm}")
-                    print(f"Detected BPM: {bpm}")
-                except Exception as e:
-                    if self.logger:
-                        self.logger.warning(f"BPM detection failed: {e}")
-                    self.status_updated.emit("Warning: BPM detection failed, continuing without BPM...")
-                    bpm = None
             
             # Create drumkit directory
             try:
@@ -1428,87 +1446,148 @@ class ProcessingWorker(QThread):
                     self.logger.error(f"Failed to create drumkit directory: {e}")
                 self.status_updated.emit(f"Error: Failed to create output directory - {str(e)}")
                 return
-            if self.split_stems:
-                self.status_updated.emit("Separating stems with Demucs...")
-                self.progress_updated.emit(20)
+            
+            # Process each input file
+            total_files = len(self.input_files)
+            for file_index, input_path in enumerate(self.input_files):
+                # Reset similarity checker for each file so only compare within the same file
+                self.similarity_checker = SampleSimilarityChecker(self.similarity_checker.similarity_threshold)
+                if self.stop_flag:
+                    break
+                
                 if self.logger:
-                    self.logger.info("Starting stem separation with Demucs...")
-                temp_dir = os.path.join(drumkit_path, "temp_stems")
-                os.makedirs(temp_dir, exist_ok=True)
+                    self.logger.info(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                self.status_updated.emit(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                
+                # Load audio file with error handling
                 try:
-                    stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
+                    audio_data, sample_rate = librosa.load(input_path, sr=None, mono=False)
                     if self.logger:
-                        self.logger.info(f"Created stems: {list(stem_paths.keys())}")
-                    print(f"Created stems: {list(stem_paths.keys())}")
-                    stem_count = len(stem_paths)
-                    for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
-                        if self.stop_flag:
-                            break
-                        progress = 20 + (i * 60 // stem_count)
-                        self.status_updated.emit(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
-                        self.progress_updated.emit(progress)
-                        if self.logger:
-                            self.logger.info(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
-                        if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
-                            if self.logger:
-                                self.logger.warning(f"Stem file {stem_path} is empty or missing")
-                            print(f"Warning: Stem file {stem_path} is empty or missing")
-                            continue
-                        stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
-                        if self.logger:
-                            self.logger.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
-                        print(f"Loaded {stem_name} stem: {stem_audio.shape}")
-                        stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
-                        os.makedirs(stem_dir, exist_ok=True)
-                        if stem_name == "vocals":
-                            vocals_filename = f"Vocals_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals.{self.output_format.upper()}"
-                            vocals_path = os.path.join(stem_dir, vocals_filename)
-                            self.save_audio_sample(stem_audio, stem_sr, vocals_path)
-                            if self.logger:
-                                self.logger.info(f"Saved vocals as whole file: {vocals_filename}")
-                            print(f"Saved vocals as whole file: {vocals_filename}")
-                        elif stem_name == "drums":
-                            self.status_updated.emit("Splitting drums into one-shots...")
-                            if self.logger:
-                                self.logger.info("Processing drums with subfolder classification...")
-                            self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm)
-                        else:
-                            self.status_updated.emit(f"Detecting one-shots in {stem_name}...")
-                            if self.logger:
-                                self.logger.info(f"Processing {stem_name} into individual samples...")
-                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm)
-                            if self.logger:
-                                self.logger.info(f"Created {sample_count} samples for {stem_name}")
-                            print(f"Created {sample_count} samples for {stem_name}")
-                    import shutil
-                    shutil.rmtree(temp_dir)
-                    if self.logger:
-                        self.logger.info("Cleaned up temporary stem files")
+                        self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                    print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
                 except Exception as e:
                     if self.logger:
-                        self.logger.error(f"Error in stem separation: {e}")
-                    print(f"Error in stem separation: {e}")
-                    self.status_updated.emit(f"Stem separation failed: {str(e)}")
-                    self.status_updated.emit("Falling back to processing whole file...")
+                        self.logger.error(f"Failed to load audio file {input_path}: {e}")
+                    self.status_updated.emit(f"Error: Failed to load audio file {os.path.basename(input_path)} - {str(e)}")
+                    continue  # Skip this file and continue with next
+            
+                # Detect BPM for this file
+                bpm = None
+                if self.detect_bpm:
+                    try:
+                        self.status_updated.emit(f"Detecting BPM for {os.path.basename(input_path)}...")
+                        progress = 10 + (file_index * 20 // total_files)
+                        self.progress_updated.emit(progress)
+                        if self.logger:
+                            self.logger.info(f"Detecting BPM for {os.path.basename(input_path)}...")
+                        bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
+                        if self.logger:
+                            self.logger.info(f"Detected BPM for {os.path.basename(input_path)}: {bpm}")
+                        print(f"Detected BPM: {bpm}")
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.warning(f"BPM detection failed for {os.path.basename(input_path)}: {e}")
+                        self.status_updated.emit(f"Warning: BPM detection failed for {os.path.basename(input_path)}, continuing without BPM...")
+                        bpm = None
+                # Process stems for this file
+                if self.split_stems:
+                    self.status_updated.emit(f"Separating stems for {os.path.basename(input_path)}...")
+                    progress = 30 + (file_index * 40 // total_files)
+                    self.progress_updated.emit(progress)
                     if self.logger:
-                        self.logger.info("Falling back to processing whole file...")
+                        self.logger.info(f"Starting stem separation for {os.path.basename(input_path)}...")
+                    
+                    # Create temporary directory for this file's stems
+                    temp_dir = os.path.join(drumkit_path, f"temp_stems_{file_index}")
+                    os.makedirs(temp_dir, exist_ok=True)
+                    
+                    try:
+                        stem_paths = self.demucs_processor.separate_stems(input_path, temp_dir)
+                        if self.logger:
+                            self.logger.info(f"Created stems for {os.path.basename(input_path)}: {list(stem_paths.keys())}")
+                        print(f"Created stems: {list(stem_paths.keys())}")
+                        
+                        stem_count = len(stem_paths)
+                        for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
+                            if self.stop_flag:
+                                break
+                            progress = 30 + (file_index * 40 // total_files) + (i * 30 // stem_count)
+                            self.status_updated.emit(f"Processing {stem_name} stem from {os.path.basename(input_path)} ({i+1}/{stem_count})...")
+                            self.progress_updated.emit(progress)
+                            if self.logger:
+                                self.logger.info(f"Processing {stem_name} stem from {os.path.basename(input_path)} ({i+1}/{stem_count})...")
+                            
+                            if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
+                                if self.logger:
+                                    self.logger.warning(f"Stem file {stem_path} is empty or missing")
+                                print(f"Warning: Stem file {stem_path} is empty or missing")
+                                continue
+                            
+                            stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
+                            if self.logger:
+                                self.logger.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                            print(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                            
+                            # Use shared directories for all files
+                            stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
+                            os.makedirs(stem_dir, exist_ok=True)
+                            
+                            if stem_name == "vocals":
+                                # Add file identifier to vocals filename
+                                vocals_filename = f"Vocals_{os.path.splitext(os.path.basename(input_path))[0]}_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals_{os.path.splitext(os.path.basename(input_path))[0]}.{self.output_format.upper()}"
+                                vocals_path = os.path.join(stem_dir, vocals_filename)
+                                self.save_audio_sample(stem_audio, stem_sr, vocals_path)
+                                if self.logger:
+                                    self.logger.info(f"Saved vocals as whole file: {vocals_filename}")
+                                print(f"Saved vocals as whole file: {vocals_filename}")
+                            elif stem_name == "drums":
+                                self.status_updated.emit(f"Splitting drums from {os.path.basename(input_path)} into one-shots...")
+                                if self.logger:
+                                    self.logger.info(f"Processing drums from {os.path.basename(input_path)} with subfolder classification...")
+                                self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
+                            else:
+                                self.status_updated.emit(f"Detecting one-shots in {stem_name} from {os.path.basename(input_path)}...")
+                                if self.logger:
+                                    self.logger.info(f"Processing {stem_name} from {os.path.basename(input_path)} into individual samples...")
+                                sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
+                                if self.logger:
+                                    self.logger.info(f"Created {sample_count} samples for {stem_name} from {os.path.basename(input_path)}")
+                                print(f"Created {sample_count} samples for {stem_name}")
+                        
+                        # Clean up temporary files for this file
+                        import shutil
+                        shutil.rmtree(temp_dir)
+                        if self.logger:
+                            self.logger.info(f"Cleaned up temporary stem files for {os.path.basename(input_path)}")
+                            
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Error in stem separation for {os.path.basename(input_path)}: {e}")
+                        print(f"Error in stem separation: {e}")
+                        self.status_updated.emit(f"Stem separation failed for {os.path.basename(input_path)}: {str(e)}")
+                        self.status_updated.emit(f"Falling back to processing whole file for {os.path.basename(input_path)}...")
+                        if self.logger:
+                            self.logger.info(f"Falling back to processing whole file for {os.path.basename(input_path)}...")
+                        sample_count = self.process_stem_into_samples(audio_data, sample_rate, drumkit_path, "Samples", bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
+                        if self.logger:
+                            self.logger.info(f"Created {sample_count} samples from whole file for {os.path.basename(input_path)}")
+                        print(f"Created {sample_count} samples from whole file")
+                else:
+                    # Process whole file without stem separation
+                    self.status_updated.emit(f"Processing {os.path.basename(input_path)} into samples...")
+                    progress = 70 + (file_index * 20 // total_files)
+                    self.progress_updated.emit(progress)
+                    if self.logger:
+                        self.logger.info(f"Processing whole file {os.path.basename(input_path)} into samples...")
                     samples_dir = os.path.join(drumkit_path, "Samples")
                     os.makedirs(samples_dir, exist_ok=True)
-                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
+                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
                     if self.logger:
-                        self.logger.info(f"Created {sample_count} samples from whole file")
+                        self.logger.info(f"Created {sample_count} samples from whole file for {os.path.basename(input_path)}")
                     print(f"Created {sample_count} samples from whole file")
-            else:
-                self.status_updated.emit("Processing audio into samples...")
-                self.progress_updated.emit(40)
-                if self.logger:
-                    self.logger.info("Processing whole file into samples...")
-                samples_dir = os.path.join(drumkit_path, "Samples")
-                os.makedirs(samples_dir, exist_ok=True)
-                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
-                if self.logger:
-                    self.logger.info(f"Created {sample_count} samples from whole file")
-                print(f"Created {sample_count} samples from whole file")
+            
+            # Create metadata file after processing all files
+            self.create_drumkit_metadata(drumkit_path, bpm)
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")
             if self.logger:
@@ -1541,7 +1620,7 @@ class ProcessingWorker(QThread):
             print(f"BPM detection error: {e}")
             return None
     
-    def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm):
+    def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm, file_identifier=""):
         """Process a stem into individual samples, with improved one-shot detection for bass/other."""
         try:
             if self.logger:
@@ -1644,6 +1723,8 @@ class ProcessingWorker(QThread):
                     self.progress_updated.emit(40 + int(50 * (i+1) / max(1, total_samples)))
                 # Generate filename with timeout handling
                 filename_parts = [f"{stem_name.capitalize()}_{i+1:03d}"]
+                if file_identifier:
+                    filename_parts.append(file_identifier)
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
                 
@@ -1744,7 +1825,7 @@ class ProcessingWorker(QThread):
             traceback.print_exc()
             return 0  # Return 0 samples processed on error
     
-    def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm):
+    def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm, file_identifier=""):
         """Process drums into frequency-based subfolders: Kick, Perc, HiHat"""
         try:
             # Convert to mono for sample detection
@@ -1828,6 +1909,8 @@ class ProcessingWorker(QThread):
                 
                 # Generate filename with timeout handling
                 filename_parts = [f"{prefix}_{i+1:03d}"]
+                if file_identifier:
+                    filename_parts.append(file_identifier)
                 
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
