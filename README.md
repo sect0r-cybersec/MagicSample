@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.5-blue)
+![Version](https://img.shields.io/badge/version-0.0.6-blue)
 
 ---
 
@@ -12,7 +12,7 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 
 - **Advanced Stem Separation**: Uses Demucs for high-quality separation of drums, bass, vocals, and other instruments
 - **BPM Detection**: Automatically detects and labels samples with BPM information
-- **Advanced Pitch Detection**: Multi-algorithm pitch detection with Scientific Pitch Notation (SPN)
+- **Advanced Dominant Frequency Detection**: Multi-algorithm dominant frequency detection with Scientific Pitch Notation (SPN)
 - **Drum Classification**: Automatically classifies drum samples into categories (Kick, HiHat, Perc)
 - **Sample Similarity Detection**: Prevents duplicate samples with configurable similarity threshold
 - **Organized Output**: Creates a structured drumkit folder with subfolders for each instrument type
@@ -102,7 +102,7 @@ MagicSample/
 4. **Configure Options**:
    - **Split to stems**: Separate into drums, bass, vocals, other
    - **Detect BPM**: Automatically detect and label BPM
-   - **Detect pitch**: Estimate and label musical pitch
+   - **Detect Dominant Frequency**: Estimate and label the most prominent frequency
    - **Classify drums**: Automatically categorize drum samples
    - **Sample Detection Sensitivity**: Adjust sample detection sensitivity (5-30)
    - **Sample Similarity Threshold**: Control duplicate detection (0-100%)
@@ -144,7 +144,7 @@ Examples:
 - `Vocals_120BPM.WAV` (whole acapella file)
 - `Other_001_120BPM_A3.WAV`
 
-**Note**: Pitch information uses Scientific Pitch Notation (SPN) and is only included when pitch detection is enabled and successful.
+**Note**: Dominant frequency information uses Scientific Pitch Notation (SPN) and is only included when dominant frequency detection is enabled and successful.
 
 ## Installation Issues?
 
@@ -188,7 +188,18 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## Changelog
 
-### Version 0.0.5 (Latest)
+### Version 0.0.6 (Latest)
+- **Comprehensive Exception Handling**: Added extensive error handling throughout the application
+- **Safe Stop & Cleanup**: Implemented proper cleanup when stopping processing mid-way
+- **Skip Sample Button**: Added ability to skip individual samples during processing
+- **Real-time Logging**: Enhanced logging system with dedicated Log tab
+- **Help Documentation**: Added comprehensive Help tab with detailed parameter explanations
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **Sample Similarity Detection**: Prevents duplicate samples with configurable threshold
+- **Advanced Dominant Frequency Detection**: Multi-algorithm dominant frequency detection with Scientific Pitch Notation
+- **Improved UI**: Better button management and user feedback
+
+### Version 0.0.5
 - **Comprehensive Exception Handling**: Added extensive error handling throughout the application
 - **Safe Stop & Cleanup**: Implemented proper cleanup when stopping processing mid-way
 - **Skip Sample Button**: Added ability to skip individual samples during processing

@@ -12,7 +12,7 @@ This version uses Demucs for stem separation and includes:
 - Similarity comparison to avoid duplicate samples
 - Sample processing timeout protection
 """
-__version__ = '0.0.5'
+__version__ = '0.0.6'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -145,6 +145,7 @@ class SampleSimilarityChecker:
                     return True  # Too similar
             
             # Not too similar to any existing sample, add to saved samples
+            print(f"Sample accepted: not similar to existing {category} samples")
             self.saved_samples[category].append(current_features)
             return False
             
@@ -208,12 +209,12 @@ class DrumClassifier:
             print(f"Classification error: {e}")
             return 'unknown'
 
-class PitchDetector:
-    """Advanced pitch detection using multiple algorithms for robust results"""
+class DominantFrequencyDetector:
+    """Advanced dominant frequency detection using multiple algorithms for robust results"""
     
     def __init__(self):
-        self.min_freq = 50
-        self.max_freq = 2000
+        self.min_freq = 20  # Lower bound for dominant frequency detection
+        self.max_freq = 8000  # Upper bound for dominant frequency detection
         self.frame_length = 2048
         self.hop_length = 512
         
@@ -223,10 +224,15 @@ class PitchDetector:
         
         # Confidence thresholds
         self.min_confidence = 0.3
-        self.min_peak_ratio = 0.1
+        self.min_peak_ratio = 0.05  # Lower threshold for dominant frequency detection
+        
+        # Spectral analysis parameters
+        self.window_length = 1024
+        self.overlap = 0.5
+        self.n_fft = 2048
     
-    def detect_pitch(self, audio_data: np.ndarray, sample_rate: int) -> Optional[str]:
-        """Detect the fundamental pitch using multiple algorithms"""
+    def detect_dominant_frequency(self, audio_data: np.ndarray, sample_rate: int) -> Optional[str]:
+        """Detect the dominant frequency using multiple algorithms based on research"""
         try:
             # Convert to mono if stereo
             if len(audio_data.shape) > 1:
@@ -237,64 +243,134 @@ class PitchDetector:
             # Normalize audio
             audio_mono = audio_mono / (np.max(np.abs(audio_mono)) + 1e-8)
             
-            # Apply multiple pitch detection methods
+            # Apply multiple dominant frequency detection methods
             results = []
             
-            # Method 1: Autocorrelation (good for low-mid frequencies)
-            autocorr_pitch = self._autocorrelation_method(audio_mono, sample_rate)
-            if autocorr_pitch:
-                results.append(autocorr_pitch)
+            # Method 1: FFT-based dominant frequency (primary method from research)
+            fft_dominant = self._fft_dominant_frequency(audio_mono, sample_rate)
+            if fft_dominant:
+                results.append(fft_dominant)
             
-            # Method 2: Harmonic Product Spectrum (robust to noise)
-            hps_pitch = self._harmonic_product_spectrum(audio_mono, sample_rate)
-            if hps_pitch:
-                results.append(hps_pitch)
+            # Method 2: Welch's method for spectral density estimation
+            welch_dominant = self._welch_dominant_frequency(audio_mono, sample_rate)
+            if welch_dominant:
+                results.append(welch_dominant)
             
-            # Method 3: Cepstrum (good for harmonic signals)
-            cepstrum_pitch = self._cepstrum_method(audio_mono, sample_rate)
-            if cepstrum_pitch:
-                results.append(cepstrum_pitch)
+            # Method 3: Autocorrelation with peak detection
+            autocorr_dominant = self._autocorrelation_dominant_frequency(audio_mono, sample_rate)
+            if autocorr_dominant:
+                results.append(autocorr_dominant)
             
-            # Method 4: YIN algorithm (modern, accurate)
-            yin_pitch = self._yin_algorithm(audio_mono, sample_rate)
-            if yin_pitch:
-                results.append(yin_pitch)
+            # Method 4: Combined approach (FFT + Welch + peak validation)
+            combined_dominant = self._combined_dominant_frequency(audio_mono, sample_rate)
+            if combined_dominant:
+                results.append(combined_dominant)
             
-            # Combine results using voting/consensus
+            # Combine results using weighted approach based on power/amplitude
             if not results:
                 return None
             
-            # Find the most common pitch or use median if no clear consensus
+            # Find the most dominant frequency (highest power)
             if len(results) >= 2:
-                # Check if results are within a semitone of each other
-                semitone_tolerance = 0.5
-                consensus_results = []
-                
-                for i, freq1 in enumerate(results):
-                    for j, freq2 in enumerate(results[i+1:], i+1):
-                        semitone_diff = abs(12 * np.log2(freq1 / freq2))
-                        if semitone_diff <= semitone_tolerance:
-                            consensus_results.extend([freq1, freq2])
-                
-                if consensus_results:
-                    # Use median of consensus results
-                    final_freq = np.median(consensus_results)
-                else:
-                    # Use median of all results
-                    final_freq = np.median(results)
+                # Use the frequency that appears most often or has highest confidence
+                # For dominant frequency, we prioritize the one with highest spectral power
+                dominant_freq = self._select_most_dominant_frequency(results, audio_mono, sample_rate)
             else:
-                final_freq = results[0]
+                dominant_freq = results[0]
             
             # Convert to note name
-            note_name = self.freq_to_note(final_freq)
+            note_name = self.freq_to_note(dominant_freq)
             return note_name
             
         except Exception as e:
-            print(f"Pitch detection error: {e}")
+            print(f"Dominant frequency detection error: {e}")
             return None
     
-    def _autocorrelation_method(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
-        """Autocorrelation-based pitch detection"""
+    def _fft_dominant_frequency(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """FFT-based dominant frequency detection (primary method from research)"""
+        try:
+            # Apply windowing to reduce spectral leakage
+            window = np.hanning(len(audio_data))
+            windowed_audio = audio_data * window
+            
+            # Compute FFT
+            fft = np.fft.fft(windowed_audio, n=self.n_fft)
+            magnitude = np.abs(fft)
+            
+            # Use only positive frequencies
+            magnitude = magnitude[:len(magnitude)//2]
+            
+            # Create frequency array
+            freqs = np.fft.fftfreq(self.n_fft, 1/sample_rate)[:len(magnitude)]
+            
+            # Filter frequencies within range
+            valid_mask = (freqs >= self.min_freq) & (freqs <= self.max_freq)
+            valid_freqs = freqs[valid_mask]
+            valid_magnitude = magnitude[valid_mask]
+            
+            if len(valid_freqs) == 0:
+                return None
+            
+            # Find the frequency with maximum power (dominant frequency)
+            max_idx = np.argmax(valid_magnitude)
+            dominant_freq = valid_freqs[max_idx]
+            
+            # Validate that the peak is significant enough
+            peak_power = valid_magnitude[max_idx]
+            avg_power = np.mean(valid_magnitude)
+            
+            if peak_power > avg_power * 2:  # Peak should be at least 2x average
+                return dominant_freq
+            
+            return None
+            
+        except Exception as e:
+            print(f"FFT dominant frequency error: {e}")
+            return None
+    
+    def _welch_dominant_frequency(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Welch's method for spectral density estimation and dominant frequency detection"""
+        try:
+            # Parameters for Welch's method
+            nperseg = min(self.window_length, len(audio_data) // 4)
+            noverlap = int(nperseg * self.overlap)
+            
+            # Apply Welch's method
+            freqs, psd = signal.welch(
+                audio_data, 
+                fs=sample_rate, 
+                nperseg=nperseg, 
+                noverlap=noverlap,
+                nfft=self.n_fft
+            )
+            
+            # Filter frequencies within range
+            valid_mask = (freqs >= self.min_freq) & (freqs <= self.max_freq)
+            valid_freqs = freqs[valid_mask]
+            valid_psd = psd[valid_mask]
+            
+            if len(valid_freqs) == 0:
+                return None
+            
+            # Find the frequency with maximum power spectral density
+            max_idx = np.argmax(valid_psd)
+            dominant_freq = valid_freqs[max_idx]
+            
+            # Validate that the peak is significant enough
+            peak_power = valid_psd[max_idx]
+            avg_power = np.mean(valid_psd)
+            
+            if peak_power > avg_power * 1.5:  # Peak should be at least 1.5x average
+                return dominant_freq
+            
+            return None
+            
+        except Exception as e:
+            print(f"Welch dominant frequency error: {e}")
+            return None
+    
+    def _autocorrelation_dominant_frequency(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Autocorrelation-based dominant frequency detection"""
         try:
             # Calculate autocorrelation
             autocorr = np.correlate(audio_data, audio_data, mode='full')
@@ -316,121 +392,103 @@ class PitchDetector:
             if len(valid_freqs) == 0:
                 return None
             
-            # Return the lowest valid frequency (fundamental)
-            return np.min(valid_freqs)
+            # For dominant frequency, we want the frequency with highest autocorrelation peak
+            # Find the peak with maximum autocorrelation value
+            valid_peaks = peaks[(frequencies >= self.min_freq) & (frequencies <= self.max_freq)]
+            if len(valid_peaks) == 0:
+                return None
+            
+            # Get autocorrelation values at valid peaks
+            peak_values = autocorr[valid_peaks]
+            max_peak_idx = np.argmax(peak_values)
+            dominant_freq = valid_freqs[max_peak_idx]
+            
+            return dominant_freq
             
         except Exception as e:
-            print(f"Autocorrelation error: {e}")
+            print(f"Autocorrelation dominant frequency error: {e}")
             return None
     
-    def _harmonic_product_spectrum(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
-        """Harmonic Product Spectrum method"""
+    def _combined_dominant_frequency(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Combined approach for robust dominant frequency detection"""
         try:
+            # Apply windowing
+            window = np.hanning(len(audio_data))
+            windowed_audio = audio_data * window
+            
             # Compute FFT
-            fft = np.fft.fft(audio_data)
+            fft = np.fft.fft(windowed_audio, n=self.n_fft)
             magnitude = np.abs(fft)
             
             # Use only positive frequencies
             magnitude = magnitude[:len(magnitude)//2]
-            
-            # Create harmonic product spectrum
-            hps = magnitude.copy()
-            for harmonic in range(2, 5):  # Use harmonics 2, 3, 4
-                if len(magnitude) >= harmonic:
-                    # Ensure arrays have the same length for multiplication
-                    harmonic_length = len(magnitude) // harmonic
-                    hps[:harmonic_length] *= magnitude[::harmonic][:harmonic_length]
-            
-            # Find peak in HPS
-            peak_idx = np.argmax(hps)
-            frequency = peak_idx * sample_rate / len(audio_data)
-            
-            # Validate frequency range
-            if self.min_freq <= frequency <= self.max_freq:
-                return frequency
-            
-            return None
-            
-        except Exception as e:
-            print(f"HPS error: {e}")
-            return None
-    
-    def _cepstrum_method(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
-        """Cepstrum-based pitch detection"""
-        try:
-            # Compute FFT
-            fft = np.fft.fft(audio_data)
-            magnitude = np.abs(fft)
-            
-            # Apply log
-            log_magnitude = np.log(magnitude + 1e-8)
-            
-            # Compute inverse FFT (cepstrum)
-            cepstrum = np.fft.ifft(log_magnitude)
-            cepstrum = np.abs(cepstrum)
-            
-            # Find peaks in cepstrum
-            peaks = self._find_peaks(cepstrum[:len(cepstrum)//2])
-            
-            if len(peaks) == 0:
-                return None
-            
-            # Convert quefrency to frequency
-            quefrencies = peaks / sample_rate
-            frequencies = 1.0 / quefrencies
+            freqs = np.fft.fftfreq(self.n_fft, 1/sample_rate)[:len(magnitude)]
             
             # Filter frequencies within range
-            valid_freqs = frequencies[(frequencies >= self.min_freq) & (frequencies <= self.max_freq)]
+            valid_mask = (freqs >= self.min_freq) & (freqs <= self.max_freq)
+            valid_freqs = freqs[valid_mask]
+            valid_magnitude = magnitude[valid_mask]
             
             if len(valid_freqs) == 0:
                 return None
             
-            # Return the lowest valid frequency
-            return np.min(valid_freqs)
+            # Find peaks in the magnitude spectrum
+            peaks = self._find_peaks(valid_magnitude)
+            
+            if len(peaks) == 0:
+                return None
+            
+            # Get peak frequencies and their magnitudes
+            peak_freqs = valid_freqs[peaks]
+            peak_magnitudes = valid_magnitude[peaks]
+            
+            # Find the peak with maximum magnitude (dominant frequency)
+            max_idx = np.argmax(peak_magnitudes)
+            dominant_freq = peak_freqs[max_idx]
+            
+            # Validate that the peak is significant enough
+            peak_power = peak_magnitudes[max_idx]
+            avg_power = np.mean(valid_magnitude)
+            
+            if peak_power > avg_power * 1.5:  # Peak should be at least 1.5x average
+                return dominant_freq
+            
+            return None
             
         except Exception as e:
-            print(f"Cepstrum error: {e}")
+            print(f"Combined dominant frequency error: {e}")
             return None
     
-    def _yin_algorithm(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
-        """YIN algorithm for pitch detection"""
+    def _select_most_dominant_frequency(self, frequencies: list, audio_data: np.ndarray, sample_rate: int) -> float:
+        """Select the most dominant frequency from multiple candidates based on spectral power"""
         try:
-            # YIN algorithm implementation
-            frame_length = min(len(audio_data), self.frame_length)
-            audio_frame = audio_data[:frame_length]
+            if not frequencies:
+                return None
             
-            # Step 1: Difference function
-            diff = np.zeros(frame_length)
-            for tau in range(1, frame_length):
-                diff[tau] = np.sum((audio_frame[tau:] - audio_frame[:-tau])**2)
+            # Calculate spectral power for each frequency
+            powers = []
+            for freq in frequencies:
+                # Find the closest frequency bin
+                fft = np.fft.fft(audio_data, n=self.n_fft)
+                magnitude = np.abs(fft)[:len(fft)//2]
+                freqs = np.fft.fftfreq(self.n_fft, 1/sample_rate)[:len(magnitude)]
+                
+                # Find the closest frequency bin
+                freq_idx = np.argmin(np.abs(freqs - freq))
+                power = magnitude[freq_idx]
+                powers.append(power)
             
-            # Step 2: Normalized difference function
-            running_sum = np.cumsum(diff)
-            normalized_diff = np.zeros_like(diff)
-            normalized_diff[1:] = diff[1:] / (running_sum[1:] / np.arange(1, frame_length))
-            
-            # Step 3: Absolute threshold
-            threshold = 0.1
-            for tau in range(1, frame_length):
-                if normalized_diff[tau] < threshold:
-                    # Find the minimum in the neighborhood
-                    while (tau + 1 < frame_length and 
-                           normalized_diff[tau + 1] < normalized_diff[tau]):
-                        tau += 1
-                    
-                    # Convert to frequency
-                    frequency = sample_rate / tau
-                    
-                    # Validate frequency range
-                    if self.min_freq <= frequency <= self.max_freq:
-                        return frequency
-                    break
-            
-            return None
+            # Return the frequency with maximum power
+            max_idx = np.argmax(powers)
+            return frequencies[max_idx]
             
         except Exception as e:
-            print(f"YIN algorithm error: {e}")
-            return None
+            print(f"Select most dominant frequency error: {e}")
+            return frequencies[0] if frequencies else 0.0
+            # Fallback to median
+            return np.median(frequencies)
+    
+
     
     def _find_peaks(self, signal: np.ndarray, min_distance: int = 10) -> np.ndarray:
         """Find peaks in a signal with minimum distance constraint"""
@@ -498,22 +556,26 @@ class PitchDetector:
 class DemucsProcessor:
     """Handles Demucs stem separation"""
     
-    def __init__(self):
+    def __init__(self, logger=None):
         self.model = None
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.sample_rate = 44100
+        self.logger = logger
     
     def load_model(self, model_name: str = "htdemucs"):
         """Load the Demucs model"""
         try:
-            logging.info(f"Loading Demucs model: {model_name}")
+            if self.logger:
+                self.logger.info(f"Loading Demucs model: {model_name}")
             # Use standard Demucs model loading
             self.model = get_model(model_name)
             self.model.to(self.device)
-            logging.info(f"Successfully loaded Demucs model: {model_name}")
+            if self.logger:
+                self.logger.info(f"Successfully loaded Demucs model: {model_name}")
             print(f"Loaded Demucs model: {model_name}")
         except Exception as e:
-            logging.error(f"Error loading Demucs model: {e}")
+            if self.logger:
+                self.logger.error(f"Error loading Demucs model: {e}")
             print(f"Error loading Demucs model: {e}")
             raise
     
@@ -523,14 +585,16 @@ class DemucsProcessor:
             self.load_model()
         
         try:
-            logging.info(f"Separating stems for: {audio_path}")
-            logging.info(f"Output directory: {output_dir}")
+            if self.logger:
+                self.logger.info(f"Separating stems for: {audio_path}")
+                self.logger.info(f"Output directory: {output_dir}")
             print(f"Separating stems for: {audio_path}")
             print(f"Output directory: {output_dir}")
             
             # Load audio using librosa to ensure correct format
             wav, sr = librosa.load(audio_path, sr=self.sample_rate, mono=False)
-            logging.info(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
+            if self.logger:
+                self.logger.info(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
             print(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
             
             # Convert to torch tensor and ensure correct shape
@@ -544,7 +608,8 @@ class DemucsProcessor:
             
             # Convert to torch tensor
             wav_tensor = torch.from_numpy(wav).float()
-            logging.info(f"Converted to torch tensor: shape={wav_tensor.shape}")
+            if self.logger:
+                self.logger.info(f"Converted to torch tensor: shape={wav_tensor.shape}")
             print(f"Converted to torch tensor: shape={wav_tensor.shape}")
             
             # Normalize
@@ -552,11 +617,13 @@ class DemucsProcessor:
             wav_tensor = (wav_tensor - ref.mean()) / ref.std()
             
             # Separate stems
-            logging.info("Applying Demucs model...")
+            if self.logger:
+                self.logger.info("Applying Demucs model...")
             print("Applying Demucs model...")
             sources = apply_model(self.model, wav_tensor[None], device=self.device)[0]
             sources = sources * ref.std() + ref.mean()
-            logging.info(f"Separated into {len(sources)} stems")
+            if self.logger:
+                self.logger.info(f"Separated into {len(sources)} stems")
             print(f"Separated into {len(sources)} stems")
             
             # Save stems
@@ -565,7 +632,8 @@ class DemucsProcessor:
             
             for i, (source, name) in enumerate(zip(sources, stem_names)):
                 stem_path = os.path.join(output_dir, f"{name}.wav")
-                logging.info(f"Saving {name} stem to: {stem_path}")
+                if self.logger:
+                    self.logger.info(f"Saving {name} stem to: {stem_path}")
                 print(f"Saving {name} stem to: {stem_path}")
                 
                 # Convert back to numpy and save
@@ -576,18 +644,22 @@ class DemucsProcessor:
                 # Verify the file was created and has content
                 if os.path.exists(stem_path) and os.path.getsize(stem_path) > 0:
                     stem_paths[name] = stem_path
-                    logging.info(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
+                    if self.logger:
+                        self.logger.info(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
                     print(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
                 else:
-                    logging.warning(f"✗ {name} stem file is empty or missing")
+                    if self.logger:
+                        self.logger.warning(f"✗ {name} stem file is empty or missing")
                     print(f"✗ {name} stem file is empty or missing")
             
-            logging.info(f"Successfully created {len(stem_paths)} stem files")
+            if self.logger:
+                self.logger.info(f"Successfully created {len(stem_paths)} stem files")
             print(f"Successfully created {len(stem_paths)} stem files")
             return stem_paths
             
         except Exception as e:
-            logging.error(f"Error in stem separation: {e}")
+            if self.logger:
+                self.logger.error(f"Error in stem separation: {e}")
             print(f"Error in stem separation: {e}")
             import traceback
             traceback.print_exc()
@@ -600,9 +672,10 @@ class MainWindow(QWidget):
         super().__init__()
         self.demucs_processor = DemucsProcessor()
         self.drum_classifier = DrumClassifier()
-        self.pitch_detector = PitchDetector()
+        self.dominant_frequency_detector = DominantFrequencyDetector()
         self.similarity_checker = SampleSimilarityChecker()
-        self.setup_ui()
+        self.setup_ui()  # Setup UI first to create log_text widget
+        self.setup_logging()  # Then setup logging
     
     def setup_ui(self):
         """Setup the user interface"""
@@ -613,9 +686,20 @@ class MainWindow(QWidget):
         icon_path = resource_path("MagicSample_icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-            logging.info(f"Application icon loaded from: {icon_path}")
+            print(f"Application icon loaded from: {icon_path}")
         else:
-            logging.warning(f"Application icon not found at: {icon_path}")
+            print(f"Application icon not found at: {icon_path}")
+            # Try alternative paths
+            alt_paths = [
+                "MagicSample_icon.ico",
+                "icon.ico",
+                "MagicSample.ico"
+            ]
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    self.setWindowIcon(QIcon(alt_path))
+                    print(f"Application icon loaded from alternative path: {alt_path}")
+                    break
         
         # Main layout with centered alignment
         layout = QVBoxLayout()
@@ -857,7 +941,7 @@ class MainWindow(QWidget):
 
 <p><b>Detect BPM:</b> Analyzes the audio to find the tempo (beats per minute). The detected BPM is included in sample filenames (e.g., "Kick_001_120BPM_C2.WAV").</p>
 
-<p><b>Detect Pitch:</b> Uses advanced multi-algorithm pitch detection to find the musical note of each sample. Results are included in filenames using Scientific Pitch Notation (e.g., "C5", "F#3").</p>
+<p><b>Detect Dominant Frequency:</b> Uses advanced multi-algorithm dominant frequency detection to find the most prominent frequency in each sample. Results are included in filenames using Scientific Pitch Notation (e.g., "C5", "F#3"). This detects the frequency with the greatest power/amplitude rather than just the fundamental frequency.</p>
 
 <p><b>Classify Drums:</b> Automatically categorizes drum samples into subfolders: Kick, HiHat, and Perc (percussion). Only applies to the Drums stem.</p>
 
@@ -995,13 +1079,13 @@ YourDrumkit/
 
 <h3>📊 Advanced Features</h3>
 
-<h4>Pitch Detection Algorithms</h4>
+<h4>Dominant Frequency Detection Algorithms</h4>
 <p>The program uses 4 different algorithms and combines their results:</p>
 <ul>
-<li><b>Autocorrelation:</b> Time-domain periodicity detection</li>
-<li><b>Harmonic Product Spectrum (HPS):</b> Frequency-domain fundamental detection</li>
-<li><b>Cepstrum:</b> Frequency-domain deconvolution</li>
-<li><b>YIN Algorithm:</b> Robust time-domain pitch detection</li>
+<li><b>FFT-based Dominant Frequency:</b> Fast Fourier Transform to find the frequency with maximum power</li>
+<li><b>Welch's Method:</b> Spectral density estimation for robust frequency analysis</li>
+<li><b>Autocorrelation Peak Detection:</b> Time-domain analysis to find dominant periodic components</li>
+<li><b>Combined Approach:</b> Multi-method validation for highest accuracy</li>
 </ul>
 
 <h4>Similarity Detection</h4>
@@ -1061,9 +1145,17 @@ YourDrumkit/
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         self.log_handler.setFormatter(formatter)
         
-        # Add handler to root logger
-        logging.getLogger().addHandler(self.log_handler)
-        logging.getLogger().setLevel(logging.INFO)
+        # Get the application logger and clear any existing handlers
+        self.logger = logging.getLogger('MagicSample')
+        for handler in self.logger.handlers[:]:
+            self.logger.removeHandler(handler)
+        
+        # Add our custom handler
+        self.logger.addHandler(self.log_handler)
+        self.logger.setLevel(logging.INFO)
+        
+        # Prevent propagation to root logger to avoid console output
+        self.logger.propagate = False
         
         # Log initial message
         self.add_log_message("MagicSample started - Logging initialized")
@@ -1121,7 +1213,7 @@ YourDrumkit/
             self.stop_button.setEnabled(True)
             self.progress_bar.setValue(0)
             
-            logging.info("Starting audio processing...")
+            self.logger.info("Starting audio processing...")
             
             # Validate timeout input
             try:
@@ -1145,7 +1237,8 @@ YourDrumkit/
                 self.drum_classify_checkbox.isChecked(),
                 self.sensitivity_slider.value(),
                 self.similarity_slider.value() / 100.0,  # Convert percentage to 0.0-1.0 range
-                timeout_value
+                timeout_value,
+                self.logger  # Pass the logger
             )
             
             self.worker.progress_updated.connect(self.update_progress)
@@ -1154,7 +1247,7 @@ YourDrumkit/
             self.worker.start()
             
         except Exception as e:
-            logging.error(f"Error starting processing: {e}")
+            self.logger.error(f"Error starting processing: {e}")
             QMessageBox.critical(self, "Error", f"Failed to start processing: {str(e)}")
             self.processing_finished()
     
@@ -1163,25 +1256,25 @@ YourDrumkit/
         try:
             if hasattr(self, 'worker') and self.worker.isRunning():
                 self.worker.skip_current_sample()
-                logging.info("User requested to skip current sample")
+                self.logger.info("User requested to skip current sample")
                 self.status_label.setText("Skipping current sample...")
             else:
-                logging.warning("Skip requested but no worker is running")
+                self.logger.warning("Skip requested but no worker is running")
         except Exception as e:
-            logging.error(f"Error skipping sample: {e}")
+            self.logger.error(f"Error skipping sample: {e}")
             QMessageBox.warning(self, "Error", f"Failed to skip sample: {str(e)}")
     
     def stop_processing(self):
         """Stop the audio processing"""
         try:
             if hasattr(self, 'worker'):
-                logging.info("User requested to stop processing - initiating cleanup...")
+                self.logger.info("User requested to stop processing - initiating cleanup...")
                 self.worker.stop()
                 self.status_label.setText("Stopping processing and saving samples...")
             else:
-                logging.warning("Stop requested but no worker exists")
+                self.logger.warning("Stop requested but no worker exists")
         except Exception as e:
-            logging.error(f"Error stopping processing: {e}")
+            self.logger.error(f"Error stopping processing: {e}")
             QMessageBox.warning(self, "Error", f"Failed to stop processing: {str(e)}")
         finally:
             self.processing_finished()
@@ -1191,14 +1284,14 @@ YourDrumkit/
         try:
             self.progress_bar.setValue(value)
         except Exception as e:
-            logging.error(f"Error updating progress: {e}")
+            self.logger.error(f"Error updating progress: {e}")
     
     def update_status(self, status):
         """Update status label"""
         try:
             self.status_label.setText(status)
         except Exception as e:
-            logging.error(f"Error updating status: {e}")
+            self.logger.error(f"Error updating status: {e}")
     
     def processing_finished(self):
         """Called when processing is finished"""
@@ -1208,9 +1301,9 @@ YourDrumkit/
             self.stop_button.setEnabled(False)
             self.progress_bar.setValue(100)
             self.status_label.setText("Processing completed!")
-            logging.info("Processing finished - UI reset to ready state")
+            self.logger.info("Processing finished - UI reset to ready state")
         except Exception as e:
-            logging.error(f"Error in processing_finished: {e}")
+            self.logger.error(f"Error in processing_finished: {e}")
 
 class ProcessingWorker(QThread):
     """Worker thread for audio processing"""
@@ -1219,7 +1312,7 @@ class ProcessingWorker(QThread):
     status_updated = pyqtSignal(str)
     
     def __init__(self, input_path, output_path, drumkit_name, output_format, 
-                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms):
+                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms, logger=None):
         super().__init__()
         self.input_path = input_path
         self.output_path = output_path
@@ -1234,16 +1327,19 @@ class ProcessingWorker(QThread):
         self.timeout_ms = timeout_ms
         self.stop_flag = False
         self.skip_flag = False
+        self.logger = logger or logging.getLogger()  # Use provided logger or fallback to root logger
         
         # Initialize processors
         try:
-            self.demucs_processor = DemucsProcessor()
+            self.demucs_processor = DemucsProcessor(logger)
             self.drum_classifier = DrumClassifier()
-            self.pitch_detector = PitchDetector()
+            self.dominant_frequency_detector = DominantFrequencyDetector()
             self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
-            logging.info("ProcessingWorker initialized successfully")
+            # Note: We'll use the main window's logger for this class
+            pass  # Logging will be handled by the main window
         except Exception as e:
-            logging.error(f"Error initializing ProcessingWorker: {e}")
+            if self.logger:
+                self.logger.error(f"Error initializing ProcessingWorker: {e}")
             raise
     
     def run_with_timeout(self, func, *args, **kwargs):
@@ -1286,17 +1382,20 @@ class ProcessingWorker(QThread):
     def run(self):
         """Main processing function with improved progress updates."""
         try:
-            logging.info("Starting audio processing...")
+            if self.logger:
+                self.logger.info("Starting audio processing...")
             self.status_updated.emit("Loading audio file...")
             self.progress_updated.emit(5)
             
             # Load audio file with error handling
             try:
                 audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
-                logging.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                if self.logger:
+                    self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
                 print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
             except Exception as e:
-                logging.error(f"Failed to load audio file: {e}")
+                if self.logger:
+                    self.logger.error(f"Failed to load audio file: {e}")
                 self.status_updated.emit(f"Error: Failed to load audio file - {str(e)}")
                 return
             
@@ -1305,12 +1404,15 @@ class ProcessingWorker(QThread):
                 try:
                     self.status_updated.emit("Detecting BPM...")
                     self.progress_updated.emit(10)
-                    logging.info("Detecting BPM...")
+                    if self.logger:
+                        self.logger.info("Detecting BPM...")
                     bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
-                    logging.info(f"Detected BPM: {bpm}")
+                    if self.logger:
+                        self.logger.info(f"Detected BPM: {bpm}")
                     print(f"Detected BPM: {bpm}")
                 except Exception as e:
-                    logging.warning(f"BPM detection failed: {e}")
+                    if self.logger:
+                        self.logger.warning(f"BPM detection failed: {e}")
                     self.status_updated.emit("Warning: BPM detection failed, continuing without BPM...")
                     bpm = None
             
@@ -1319,20 +1421,24 @@ class ProcessingWorker(QThread):
                 drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
                 os.makedirs(drumkit_path, exist_ok=True)
                 self.drumkit_path = drumkit_path  # Store for cleanup
-                logging.info(f"Created drumkit directory: {drumkit_path}")
+                if self.logger:
+                    self.logger.info(f"Created drumkit directory: {drumkit_path}")
             except Exception as e:
-                logging.error(f"Failed to create drumkit directory: {e}")
+                if self.logger:
+                    self.logger.error(f"Failed to create drumkit directory: {e}")
                 self.status_updated.emit(f"Error: Failed to create output directory - {str(e)}")
                 return
             if self.split_stems:
                 self.status_updated.emit("Separating stems with Demucs...")
                 self.progress_updated.emit(20)
-                logging.info("Starting stem separation with Demucs...")
+                if self.logger:
+                    self.logger.info("Starting stem separation with Demucs...")
                 temp_dir = os.path.join(drumkit_path, "temp_stems")
                 os.makedirs(temp_dir, exist_ok=True)
                 try:
                     stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
-                    logging.info(f"Created stems: {list(stem_paths.keys())}")
+                    if self.logger:
+                        self.logger.info(f"Created stems: {list(stem_paths.keys())}")
                     print(f"Created stems: {list(stem_paths.keys())}")
                     stem_count = len(stem_paths)
                     for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
@@ -1341,13 +1447,16 @@ class ProcessingWorker(QThread):
                         progress = 20 + (i * 60 // stem_count)
                         self.status_updated.emit(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
                         self.progress_updated.emit(progress)
-                        logging.info(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
+                        if self.logger:
+                            self.logger.info(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
                         if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
-                            logging.warning(f"Stem file {stem_path} is empty or missing")
+                            if self.logger:
+                                self.logger.warning(f"Stem file {stem_path} is empty or missing")
                             print(f"Warning: Stem file {stem_path} is empty or missing")
                             continue
                         stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
-                        logging.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                        if self.logger:
+                            self.logger.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         print(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
                         os.makedirs(stem_dir, exist_ok=True)
@@ -1355,46 +1464,58 @@ class ProcessingWorker(QThread):
                             vocals_filename = f"Vocals_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals.{self.output_format.upper()}"
                             vocals_path = os.path.join(stem_dir, vocals_filename)
                             self.save_audio_sample(stem_audio, stem_sr, vocals_path)
-                            logging.info(f"Saved vocals as whole file: {vocals_filename}")
+                            if self.logger:
+                                self.logger.info(f"Saved vocals as whole file: {vocals_filename}")
                             print(f"Saved vocals as whole file: {vocals_filename}")
                         elif stem_name == "drums":
                             self.status_updated.emit("Splitting drums into one-shots...")
-                            logging.info("Processing drums with subfolder classification...")
+                            if self.logger:
+                                self.logger.info("Processing drums with subfolder classification...")
                             self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm)
                         else:
                             self.status_updated.emit(f"Detecting one-shots in {stem_name}...")
-                            logging.info(f"Processing {stem_name} into individual samples...")
+                            if self.logger:
+                                self.logger.info(f"Processing {stem_name} into individual samples...")
                             sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm)
-                            logging.info(f"Created {sample_count} samples for {stem_name}")
+                            if self.logger:
+                                self.logger.info(f"Created {sample_count} samples for {stem_name}")
                             print(f"Created {sample_count} samples for {stem_name}")
                     import shutil
                     shutil.rmtree(temp_dir)
-                    logging.info("Cleaned up temporary stem files")
+                    if self.logger:
+                        self.logger.info("Cleaned up temporary stem files")
                 except Exception as e:
-                    logging.error(f"Error in stem separation: {e}")
+                    if self.logger:
+                        self.logger.error(f"Error in stem separation: {e}")
                     print(f"Error in stem separation: {e}")
                     self.status_updated.emit(f"Stem separation failed: {str(e)}")
                     self.status_updated.emit("Falling back to processing whole file...")
-                    logging.info("Falling back to processing whole file...")
+                    if self.logger:
+                        self.logger.info("Falling back to processing whole file...")
                     samples_dir = os.path.join(drumkit_path, "Samples")
                     os.makedirs(samples_dir, exist_ok=True)
                     sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
-                    logging.info(f"Created {sample_count} samples from whole file")
+                    if self.logger:
+                        self.logger.info(f"Created {sample_count} samples from whole file")
                     print(f"Created {sample_count} samples from whole file")
             else:
                 self.status_updated.emit("Processing audio into samples...")
                 self.progress_updated.emit(40)
-                logging.info("Processing whole file into samples...")
+                if self.logger:
+                    self.logger.info("Processing whole file into samples...")
                 samples_dir = os.path.join(drumkit_path, "Samples")
                 os.makedirs(samples_dir, exist_ok=True)
                 sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
-                logging.info(f"Created {sample_count} samples from whole file")
+                if self.logger:
+                    self.logger.info(f"Created {sample_count} samples from whole file")
                 print(f"Created {sample_count} samples from whole file")
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")
-            logging.info("Drumkit creation completed!")
+            if self.logger:
+                self.logger.info("Drumkit creation completed!")
         except Exception as e:
-            logging.error(f"Processing error: {e}")
+            if self.logger:
+                self.logger.error(f"Processing error: {e}")
             self.status_updated.emit(f"Error: {str(e)}")
             print(f"Processing error: {e}")
             import traceback
@@ -1423,7 +1544,8 @@ class ProcessingWorker(QThread):
     def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm):
         """Process a stem into individual samples, with improved one-shot detection for bass/other."""
         try:
-            logging.info(f"Processing {stem_name} into samples...")
+            if self.logger:
+                self.logger.info(f"Processing {stem_name} into samples...")
             # Convert to mono for sample detection
             if len(audio_data.shape) > 1:
                 audio_mono = np.mean(audio_data, axis=0)
@@ -1467,12 +1589,14 @@ class ProcessingWorker(QThread):
             total_samples = len(sample_boundaries)
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
-                    logging.info("Stop flag detected - breaking sample processing loop")
+                    if self.logger:
+                        self.logger.info("Stop flag detected - breaking sample processing loop")
                     break
                 
                 # Check for skip flag
                 if self.skip_flag:
-                    logging.info(f"Skipping sample {i+1}/{total_samples}")
+                    if self.logger:
+                        self.logger.info(f"Skipping sample {i+1}/{total_samples}")
                     self.skip_flag = False  # Reset skip flag
                     continue
                 # Extract sample with error handling
@@ -1482,31 +1606,36 @@ class ProcessingWorker(QThread):
                     else:
                         sample_audio = audio_data[start:end]
                 except Exception as e:
-                    logging.error(f"Error extracting sample {i+1}: {e}")
+                    if self.logger:
+                        self.logger.error(f"Error extracting sample {i+1}: {e}")
                     continue
                 
                 # Skip very short samples (unless it's the only sample)
                 try:
                     sample_duration = sample_audio.shape[-1] / sample_rate
                     if sample_duration < min_duration and total_samples > 1:
-                        logging.info(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                        if self.logger:
+                            self.logger.info(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                         if hasattr(self, 'status_updated'):
                             self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                         continue
                 except Exception as e:
-                    logging.error(f"Error calculating sample duration for sample {i+1}: {e}")
+                    if self.logger:
+                        self.logger.error(f"Error calculating sample duration for sample {i+1}: {e}")
                     continue
                 
                 # Skip very quiet samples (unless it's the only sample)
                 try:
                     sample_rms = np.sqrt(np.mean(sample_audio**2))
                     if sample_rms < 0.001 and total_samples > 1:
-                        logging.info(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                        if self.logger:
+                            self.logger.info(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
                         if hasattr(self, 'status_updated'):
                             self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
                         continue
                 except Exception as e:
-                    logging.error(f"Error calculating RMS for sample {i+1}: {e}")
+                    if self.logger:
+                        self.logger.error(f"Error calculating RMS for sample {i+1}: {e}")
                     continue
                 # Verbose progress for each sample
                 if hasattr(self, 'status_updated'):
@@ -1518,29 +1647,33 @@ class ProcessingWorker(QThread):
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
                 
-                # Pitch detection with timeout and error handling
-                pitch = None
+                # Dominant frequency detection with timeout and error handling
+                dominant_freq = None
                 if self.detect_pitch:
                     try:
-                        pitch_result, pitch_status = self.run_with_timeout(
-                            self.pitch_detector.detect_pitch, sample_audio, sample_rate
+                        freq_result, freq_status = self.run_with_timeout(
+                            self.dominant_frequency_detector.detect_dominant_frequency, sample_audio, sample_rate
                         )
-                        if pitch_status == "success" and pitch_result and pitch_result != "N/A":
-                            pitch = pitch_result
-                            filename_parts.append(pitch)
-                            logging.info(f"Pitch detected for {stem_name} sample {i+1}: {pitch}")
-                        elif pitch_status == "timeout":
-                            logging.warning(f"Pitch detection timeout for {stem_name} sample {i+1}")
+                        if freq_status == "success" and freq_result and freq_result != "N/A":
+                            dominant_freq = freq_result
+                            filename_parts.append(dominant_freq)
+                            if self.logger:
+                                self.logger.info(f"Dominant frequency detected for {stem_name} sample {i+1}: {dominant_freq}")
+                        elif freq_status == "timeout":
+                            if self.logger:
+                                self.logger.warning(f"Dominant frequency detection timeout for {stem_name} sample {i+1}")
                             if hasattr(self, 'status_updated'):
-                                self.status_updated.emit(f"Pitch detection timeout for {stem_name} sample {i+1}, continuing...")
+                                self.status_updated.emit(f"Dominant frequency detection timeout for {stem_name} sample {i+1}, continuing...")
                         else:
-                            logging.warning(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                            if self.logger:
+                                self.logger.warning(f"Dominant frequency detection failed for {stem_name} sample {i+1}: {freq_status}")
                             if hasattr(self, 'status_updated'):
-                                self.status_updated.emit(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                                self.status_updated.emit(f"Dominant frequency detection failed for {stem_name} sample {i+1}: {freq_status}")
                     except Exception as e:
-                        logging.error(f"Error during pitch detection for {stem_name} sample {i+1}: {e}")
+                        if self.logger:
+                            self.logger.error(f"Error during dominant frequency detection for {stem_name} sample {i+1}: {e}")
                         if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Pitch detection error for {stem_name} sample {i+1}: {str(e)}")
+                            self.status_updated.emit(f"Dominant frequency detection error for {stem_name} sample {i+1}: {str(e)}")
                 
                 filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(output_dir, filename)
@@ -1551,12 +1684,14 @@ class ProcessingWorker(QThread):
                         self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, stem_name.capitalize()
                     )
                 except Exception as e:
-                    logging.error(f"Error during similarity check for {stem_name} sample {i+1}: {e}")
+                    if self.logger:
+                        self.logger.error(f"Error during similarity check for {stem_name} sample {i+1}: {e}")
                     similarity_status = "error"
                     similarity_result = False
                 
                 if similarity_status == "timeout":
-                    logging.warning(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
+                    if self.logger:
+                        self.logger.warning(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
                     # Save sample even if similarity check times out
@@ -1564,38 +1699,46 @@ class ProcessingWorker(QThread):
                         self.save_audio_sample(sample_audio, sample_rate, filepath)
                         sample_count += 1
                     except Exception as e:
-                        logging.error(f"Failed to save sample after similarity timeout: {e}")
+                        if self.logger:
+                            self.logger.error(f"Failed to save sample after similarity timeout: {e}")
                 elif similarity_status == "success" and similarity_result:
-                    logging.info(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
+                    if self.logger:
+                        self.logger.info(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
                     continue
                 elif similarity_status == "success" and not similarity_result:
                     # Not similar, save the sample
-                    logging.info(f"Saving {stem_name} sample {i+1}: {filename}")
+                    if self.logger:
+                        self.logger.info(f"Saving {stem_name} sample {i+1}: {filename}")
                     try:
                         self.save_audio_sample(sample_audio, sample_rate, filepath)
                         sample_count += 1
                     except Exception as e:
-                        logging.error(f"Failed to save sample {i+1}: {e}")
+                        if self.logger:
+                            self.logger.error(f"Failed to save sample {i+1}: {e}")
                         if hasattr(self, 'status_updated'):
                             self.status_updated.emit(f"Failed to save {stem_name} sample {i+1}: {str(e)}")
                 else:
                     # Similarity check failed, save sample anyway
-                    logging.warning(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
+                    if self.logger:
+                        self.logger.warning(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
                     try:
                         self.save_audio_sample(sample_audio, sample_rate, filepath)
                         sample_count += 1
                     except Exception as e:
-                        logging.error(f"Failed to save sample after similarity failure: {e}")
-            logging.info(f"Successfully created {sample_count} samples for {stem_name}")
+                        if self.logger:
+                            self.logger.error(f"Failed to save sample after similarity failure: {e}")
+            if self.logger:
+                self.logger.info(f"Successfully created {sample_count} samples for {stem_name}")
             if hasattr(self, 'status_updated'):
                 self.status_updated.emit(f"Successfully created {sample_count} samples for {stem_name}.")
             return sample_count
         except Exception as e:
-            logging.error(f"Error processing stem {stem_name}: {e}")
+            if self.logger:
+                self.logger.error(f"Error processing stem {stem_name}: {e}")
             print(f"Error processing stem {stem_name}: {e}")
             import traceback
             traceback.print_exc()
@@ -1627,6 +1770,11 @@ class ProcessingWorker(QThread):
                 print(f"No drum samples detected even with high sensitivity. Creating single sample.")
                 # Create one sample from the entire audio
                 sample_boundaries = [(0, len(audio_mono))]
+            
+            # Ensure we have at least one sample boundary
+            if len(sample_boundaries) == 0:
+                print("ERROR: Still no sample boundaries found. Creating fallback sample.")
+                sample_boundaries = [(0, min(len(audio_mono), sample_rate * 5))]  # 5 seconds max
             
             # Create subfolders for different drum types
             kick_dir = os.path.join(output_dir, "Kick")
@@ -1660,6 +1808,7 @@ class ProcessingWorker(QThread):
                     print(f"Skipping drum sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
                     continue
                 
+                # Log sample details for debugging
                 print(f"Processing drum sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
                 
                 # Classify drum sample based on frequency characteristics
@@ -1683,25 +1832,26 @@ class ProcessingWorker(QThread):
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
                 
-                # Pitch detection with timeout
+                # Dominant frequency detection with timeout
                 if self.detect_pitch:
-                    pitch_result, pitch_status = self.run_with_timeout(
-                        self.pitch_detector.detect_pitch, sample_audio, sample_rate
+                    freq_result, freq_status = self.run_with_timeout(
+                        self.dominant_frequency_detector.detect_dominant_frequency, sample_audio, sample_rate
                     )
-                    if pitch_status == "success" and pitch_result and pitch_result != "N/A":
-                        filename_parts.append(pitch_result)
-                    elif pitch_status == "timeout":
+                    if freq_status == "success" and freq_result and freq_result != "N/A":
+                        filename_parts.append(freq_result)
+                    elif freq_status == "timeout":
                         if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Pitch detection timeout for {drum_type} sample {i+1}, continuing...")
+                            self.status_updated.emit(f"Dominant frequency detection timeout for {drum_type} sample {i+1}, continuing...")
                     else:
                         if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Pitch detection failed for {drum_type} sample {i+1}: {pitch_status}")
+                            self.status_updated.emit(f"Dominant frequency detection failed for {drum_type} sample {i+1}: {freq_status}")
                 
                 # Create final filename
                 filename = "_".join(filename_parts) + f".{self.output_format.capitalize()}"
                 filepath = os.path.join(target_dir, filename)
                 
                 # Similarity check with timeout
+                print(f"Checking similarity for {drum_type} sample {i+1}...")
                 similarity_result, similarity_status = self.run_with_timeout(
                     self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, drum_type
                 )
@@ -1817,39 +1967,48 @@ class ProcessingWorker(QThread):
         """Skip the current sample being processed"""
         try:
             self.skip_flag = True
-            logging.info("Skip flag set - current sample will be skipped")
+            if self.logger:
+                self.logger.info("Skip flag set - current sample will be skipped")
         except Exception as e:
-            logging.error(f"Error setting skip flag: {e}")
+            if self.logger:
+                self.logger.error(f"Error setting skip flag: {e}")
     
     def stop(self):
         """Stop the processing and perform cleanup"""
         try:
-            logging.info("Stop requested - setting stop flag and performing cleanup...")
+            if self.logger:
+                self.logger.info("Stop requested - setting stop flag and performing cleanup...")
             self.stop_flag = True
             
             # Perform cleanup operations
             self.perform_cleanup()
             
         except Exception as e:
-            logging.error(f"Error during stop operation: {e}")
+            if self.logger:
+                self.logger.error(f"Error during stop operation: {e}")
     
     def perform_cleanup(self):
         """Perform cleanup operations when stopping"""
         try:
-            logging.info("Performing cleanup operations...")
+            if self.logger:
+                self.logger.info("Performing cleanup operations...")
             
             # Save any metadata that might be in progress
             if hasattr(self, 'drumkit_path') and self.drumkit_path:
                 try:
                     self.create_drumkit_metadata(self.drumkit_path, getattr(self, 'bpm', None))
-                    logging.info("Metadata saved during cleanup")
+                    if self.logger:
+                        self.logger.info("Metadata saved during cleanup")
                 except Exception as e:
-                    logging.warning(f"Could not save metadata during cleanup: {e}")
+                    if self.logger:
+                        self.logger.warning(f"Could not save metadata during cleanup: {e}")
             
-            logging.info("Cleanup completed successfully")
+            if self.logger:
+                self.logger.info("Cleanup completed successfully")
             
         except Exception as e:
-            logging.error(f"Error during cleanup: {e}")
+            if self.logger:
+                self.logger.error(f"Error during cleanup: {e}")
 
 def main():
     """Main application entry point"""
