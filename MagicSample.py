@@ -5,11 +5,13 @@ Enhanced audio sample extraction and drumkit creation tool
 
 This version uses Demucs for stem separation and includes:
 - BPM detection
-- Pitch estimation
+- Advanced multi-algorithm pitch detection (Autocorrelation, HPS, Cepstrum, YIN)
+- Scientific Pitch Notation (SPN) integration in filenames
 - Drum classification (hi-hat, snare, bass drum, etc.)
 - Organized drumkit folder structure
+- Similarity comparison to avoid duplicate samples
 """
-__version__ = '0.0.2'
+__version__ = '0.0.4'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -35,6 +37,7 @@ import librosa.feature
 import soundfile as sf
 import numpy as np
 import scipy.signal as signal
+from scipy.spatial.distance import cosine
 
 # Demucs imports
 import torch
@@ -54,6 +57,93 @@ def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath('.'), relative_path)
+
+class SampleSimilarityChecker:
+    """Checks similarity between audio samples to avoid duplicates"""
+    
+    def __init__(self, similarity_threshold: float = 0.8):
+        self.similarity_threshold = similarity_threshold
+        self.saved_samples = {}  # category -> list of feature vectors
+    
+    def calculate_sample_features(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Calculate feature vector for similarity comparison"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate MFCC features (good for timbral similarity)
+            mfcc = librosa.feature.mfcc(y=audio_mono, sr=sample_rate, n_mfcc=13)
+            
+            # Calculate spectral features
+            spectral_centroid = librosa.feature.spectral_centroid(y=audio_mono, sr=sample_rate)[0]
+            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_mono, sr=sample_rate)[0]
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_mono, sr=sample_rate)[0]
+            
+            # Calculate RMS energy
+            rms = librosa.feature.rms(y=audio_mono)[0]
+            
+            # Calculate zero crossing rate
+            zcr = librosa.feature.zero_crossing_rate(audio_mono)[0]
+            
+            # Get average values
+            avg_mfcc = np.mean(mfcc, axis=1)
+            avg_centroid = np.mean(spectral_centroid)
+            avg_rolloff = np.mean(spectral_rolloff)
+            avg_bandwidth = np.mean(spectral_bandwidth)
+            avg_rms = np.mean(rms)
+            avg_zcr = np.mean(zcr)
+            
+            # Combine all features into a single vector
+            features = np.concatenate([
+                avg_mfcc,
+                [avg_centroid, avg_rolloff, avg_bandwidth, avg_rms, avg_zcr]
+            ])
+            
+            # Normalize the feature vector
+            features = (features - np.mean(features)) / (np.std(features) + 1e-8)
+            
+            return features
+            
+        except Exception as e:
+            print(f"Error calculating sample features: {e}")
+            return None
+    
+    def is_similar_to_existing(self, audio_data: np.ndarray, sample_rate: int, category: str) -> bool:
+        """Check if a sample is too similar to existing samples in the same category"""
+        try:
+            # Calculate features for the current sample
+            current_features = self.calculate_sample_features(audio_data, sample_rate)
+            if current_features is None:
+                return False  # If we can't calculate features, allow the sample
+            
+            # Initialize category if it doesn't exist
+            if category not in self.saved_samples:
+                self.saved_samples[category] = []
+                return False  # First sample in category is always allowed
+            
+            # Compare with existing samples in the same category
+            for existing_features in self.saved_samples[category]:
+                # Calculate cosine similarity (1 = identical, 0 = completely different)
+                similarity = 1 - cosine(current_features, existing_features)
+                
+                if similarity >= self.similarity_threshold:
+                    print(f"Sample rejected: {similarity:.3f} similarity to existing {category} sample")
+                    return True  # Too similar
+            
+            # Not too similar to any existing sample, add to saved samples
+            self.saved_samples[category].append(current_features)
+            return False
+            
+        except Exception as e:
+            print(f"Error in similarity check: {e}")
+            return False  # Allow sample if similarity check fails
+    
+    def set_threshold(self, threshold: float):
+        """Update the similarity threshold (0.0 to 1.0)"""
+        self.similarity_threshold = max(0.0, min(1.0, threshold))
 
 class DrumClassifier:
     """Classifies drum samples into different categories"""
@@ -108,51 +198,251 @@ class DrumClassifier:
             return 'unknown'
 
 class PitchDetector:
-    """Detects pitch information from audio samples"""
+    """Advanced pitch detection using multiple algorithms for robust results"""
     
     def __init__(self):
         self.min_freq = 50
         self.max_freq = 2000
+        self.frame_length = 2048
+        self.hop_length = 512
+        
+        # Note frequencies for A4 = 440Hz reference
+        self.A4 = 440.0
+        self.note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        
+        # Confidence thresholds
+        self.min_confidence = 0.3
+        self.min_peak_ratio = 0.1
     
     def detect_pitch(self, audio_data: np.ndarray, sample_rate: int) -> Optional[str]:
-        """Detect the fundamental pitch of an audio sample"""
+        """Detect the fundamental pitch using multiple algorithms"""
         try:
-            # Use librosa's pitch detection
-            pitches, magnitudes = librosa.piptrack(y=audio_data, sr=sample_rate, 
-                                                 fmin=self.min_freq, fmax=self.max_freq)
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
             
-            # Find the pitch with maximum magnitude
-            max_magnitude_idx = np.argmax(magnitudes, axis=0)
-            pitches_filtered = pitches[max_magnitude_idx, np.arange(pitches.shape[1])]
+            # Normalize audio
+            audio_mono = audio_mono / (np.max(np.abs(audio_mono)) + 1e-8)
             
-            # Filter out zero pitches and get the most common pitch
-            pitches_filtered = pitches_filtered[pitches_filtered > 0]
+            # Apply multiple pitch detection methods
+            results = []
             
-            if len(pitches_filtered) == 0:
+            # Method 1: Autocorrelation (good for low-mid frequencies)
+            autocorr_pitch = self._autocorrelation_method(audio_mono, sample_rate)
+            if autocorr_pitch:
+                results.append(autocorr_pitch)
+            
+            # Method 2: Harmonic Product Spectrum (robust to noise)
+            hps_pitch = self._harmonic_product_spectrum(audio_mono, sample_rate)
+            if hps_pitch:
+                results.append(hps_pitch)
+            
+            # Method 3: Cepstrum (good for harmonic signals)
+            cepstrum_pitch = self._cepstrum_method(audio_mono, sample_rate)
+            if cepstrum_pitch:
+                results.append(cepstrum_pitch)
+            
+            # Method 4: YIN algorithm (modern, accurate)
+            yin_pitch = self._yin_algorithm(audio_mono, sample_rate)
+            if yin_pitch:
+                results.append(yin_pitch)
+            
+            # Combine results using voting/consensus
+            if not results:
                 return None
             
-            # Get the median pitch (more robust than mean)
-            median_pitch = np.median(pitches_filtered)
+            # Find the most common pitch or use median if no clear consensus
+            if len(results) >= 2:
+                # Check if results are within a semitone of each other
+                semitone_tolerance = 0.5
+                consensus_results = []
+                
+                for i, freq1 in enumerate(results):
+                    for j, freq2 in enumerate(results[i+1:], i+1):
+                        semitone_diff = abs(12 * np.log2(freq1 / freq2))
+                        if semitone_diff <= semitone_tolerance:
+                            consensus_results.extend([freq1, freq2])
+                
+                if consensus_results:
+                    # Use median of consensus results
+                    final_freq = np.median(consensus_results)
+                else:
+                    # Use median of all results
+                    final_freq = np.median(results)
+            else:
+                final_freq = results[0]
             
-            # Convert frequency to note name
-            note_name = self.freq_to_note(median_pitch)
+            # Convert to note name
+            note_name = self.freq_to_note(final_freq)
             return note_name
             
         except Exception as e:
             print(f"Pitch detection error: {e}")
             return None
     
+    def _autocorrelation_method(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Autocorrelation-based pitch detection"""
+        try:
+            # Calculate autocorrelation
+            autocorr = np.correlate(audio_data, audio_data, mode='full')
+            autocorr = autocorr[len(autocorr)//2:]
+            
+            # Find peaks in autocorrelation
+            peaks = self._find_peaks(autocorr)
+            
+            if len(peaks) == 0:
+                return None
+            
+            # Convert lag to frequency
+            lags = peaks / sample_rate
+            frequencies = 1.0 / lags
+            
+            # Filter frequencies within range
+            valid_freqs = frequencies[(frequencies >= self.min_freq) & (frequencies <= self.max_freq)]
+            
+            if len(valid_freqs) == 0:
+                return None
+            
+            # Return the lowest valid frequency (fundamental)
+            return np.min(valid_freqs)
+            
+        except Exception as e:
+            print(f"Autocorrelation error: {e}")
+            return None
+    
+    def _harmonic_product_spectrum(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Harmonic Product Spectrum method"""
+        try:
+            # Compute FFT
+            fft = np.fft.fft(audio_data)
+            magnitude = np.abs(fft)
+            
+            # Use only positive frequencies
+            magnitude = magnitude[:len(magnitude)//2]
+            
+            # Create harmonic product spectrum
+            hps = magnitude.copy()
+            for harmonic in range(2, 5):  # Use harmonics 2, 3, 4
+                if len(magnitude) >= harmonic:
+                    hps[:len(magnitude)//harmonic] *= magnitude[::harmonic]
+            
+            # Find peak in HPS
+            peak_idx = np.argmax(hps)
+            frequency = peak_idx * sample_rate / len(audio_data)
+            
+            # Validate frequency range
+            if self.min_freq <= frequency <= self.max_freq:
+                return frequency
+            
+            return None
+            
+        except Exception as e:
+            print(f"HPS error: {e}")
+            return None
+    
+    def _cepstrum_method(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """Cepstrum-based pitch detection"""
+        try:
+            # Compute FFT
+            fft = np.fft.fft(audio_data)
+            magnitude = np.abs(fft)
+            
+            # Apply log
+            log_magnitude = np.log(magnitude + 1e-8)
+            
+            # Compute inverse FFT (cepstrum)
+            cepstrum = np.fft.ifft(log_magnitude)
+            cepstrum = np.abs(cepstrum)
+            
+            # Find peaks in cepstrum
+            peaks = self._find_peaks(cepstrum[:len(cepstrum)//2])
+            
+            if len(peaks) == 0:
+                return None
+            
+            # Convert quefrency to frequency
+            quefrencies = peaks / sample_rate
+            frequencies = 1.0 / quefrencies
+            
+            # Filter frequencies within range
+            valid_freqs = frequencies[(frequencies >= self.min_freq) & (frequencies <= self.max_freq)]
+            
+            if len(valid_freqs) == 0:
+                return None
+            
+            # Return the lowest valid frequency
+            return np.min(valid_freqs)
+            
+        except Exception as e:
+            print(f"Cepstrum error: {e}")
+            return None
+    
+    def _yin_algorithm(self, audio_data: np.ndarray, sample_rate: int) -> Optional[float]:
+        """YIN algorithm for pitch detection"""
+        try:
+            # YIN algorithm implementation
+            frame_length = min(len(audio_data), self.frame_length)
+            audio_frame = audio_data[:frame_length]
+            
+            # Step 1: Difference function
+            diff = np.zeros(frame_length)
+            for tau in range(1, frame_length):
+                diff[tau] = np.sum((audio_frame[tau:] - audio_frame[:-tau])**2)
+            
+            # Step 2: Normalized difference function
+            running_sum = np.cumsum(diff)
+            normalized_diff = np.zeros_like(diff)
+            normalized_diff[1:] = diff[1:] / (running_sum[1:] / np.arange(1, frame_length))
+            
+            # Step 3: Absolute threshold
+            threshold = 0.1
+            for tau in range(1, frame_length):
+                if normalized_diff[tau] < threshold:
+                    # Find the minimum in the neighborhood
+                    while (tau + 1 < frame_length and 
+                           normalized_diff[tau + 1] < normalized_diff[tau]):
+                        tau += 1
+                    
+                    # Convert to frequency
+                    frequency = sample_rate / tau
+                    
+                    # Validate frequency range
+                    if self.min_freq <= frequency <= self.max_freq:
+                        return frequency
+                    break
+            
+            return None
+            
+        except Exception as e:
+            print(f"YIN algorithm error: {e}")
+            return None
+    
+    def _find_peaks(self, signal: np.ndarray, min_distance: int = 10) -> np.ndarray:
+        """Find peaks in a signal with minimum distance constraint"""
+        try:
+            peaks = []
+            for i in range(1, len(signal) - 1):
+                if (signal[i] > signal[i-1] and signal[i] > signal[i+1] and 
+                    signal[i] > np.max(signal) * self.min_peak_ratio):
+                    # Check minimum distance from previous peaks
+                    if not peaks or i - peaks[-1] >= min_distance:
+                        peaks.append(i)
+            
+            return np.array(peaks)
+            
+        except Exception as e:
+            print(f"Peak finding error: {e}")
+            return np.array([])
+    
     def freq_to_note(self, freq: float) -> str:
-        """Convert frequency to musical note name"""
+        """Convert frequency to Scientific Pitch Notation (SPN)"""
         if freq <= 0:
             return "N/A"
         
-        # A4 = 440 Hz
-        A4 = 440.0
-        note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        
-        # Calculate semitones from A4
-        semitones = 12 * np.log2(freq / A4)
+        # Calculate semitones from A4 (440 Hz)
+        semitones = 12 * np.log2(freq / self.A4)
         
         # Round to nearest semitone
         semitones_rounded = round(semitones)
@@ -161,7 +451,36 @@ class PitchDetector:
         note_index = (semitones_rounded + 9) % 12  # A is index 9
         octave = (semitones_rounded + 9) // 12 + 4  # A4 is octave 4
         
-        return f"{note_names[note_index]}{octave}"
+        # Handle edge cases for very low/high frequencies
+        if octave < 0:
+            octave = 0
+        elif octave > 9:
+            octave = 9
+        
+        return f"{self.note_names[note_index]}{octave}"
+    
+    def get_pitch_confidence(self, audio_data: np.ndarray, sample_rate: int) -> float:
+        """Calculate confidence score for pitch detection"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate signal-to-noise ratio
+            signal_power = np.mean(audio_mono**2)
+            noise_floor = np.percentile(audio_mono**2, 10)
+            snr = 10 * np.log10(signal_power / (noise_floor + 1e-8))
+            
+            # Normalize SNR to 0-1 range
+            confidence = min(1.0, max(0.0, (snr + 20) / 40))
+            
+            return confidence
+            
+        except Exception as e:
+            print(f"Confidence calculation error: {e}")
+            return 0.0
 
 class DemucsProcessor:
     """Handles Demucs stem separation"""
@@ -259,6 +578,7 @@ class MainWindow(QWidget):
         self.demucs_processor = DemucsProcessor()
         self.drum_classifier = DrumClassifier()
         self.pitch_detector = PitchDetector()
+        self.similarity_checker = SampleSimilarityChecker()
         self.setup_ui()
     
     def setup_ui(self):
@@ -355,23 +675,35 @@ class MainWindow(QWidget):
         self.sensitivity_slider.setTickInterval(5)
         options_layout.addWidget(self.sensitivity_slider, 3, 0, 1, 2)
         
+        # Similarity slider
+        similarity_label = QLabel("Sample Similarity Threshold (0% = identical, 100% = very different)")
+        similarity_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(similarity_label, 4, 0, 1, 2)
+        
+        self.similarity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.similarity_slider.setRange(0, 100)  # 0% to 100%
+        self.similarity_slider.setValue(80)  # Default 80%
+        self.similarity_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.similarity_slider.setTickInterval(10)
+        options_layout.addWidget(self.similarity_slider, 5, 0, 1, 2)
+        
         # Output format and drumkit name in a row
         format_label = QLabel("Output Format:")
         format_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(format_label, 4, 0)
+        options_layout.addWidget(format_label, 6, 0)
         
         self.format_combo = QComboBox()
         self.format_combo.addItems(['WAV', 'FLAC', 'OGG'])
-        options_layout.addWidget(self.format_combo, 4, 1)
+        options_layout.addWidget(self.format_combo, 6, 1)
         
         drumkit_label = QLabel("Drumkit Name:")
         drumkit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(drumkit_label, 5, 0)
+        options_layout.addWidget(drumkit_label, 7, 0)
         
         self.drumkit_name_edit = QLineEdit()
         self.drumkit_name_edit.setPlaceholderText("MyDrumkit")
         self.drumkit_name_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(self.drumkit_name_edit, 5, 1)
+        options_layout.addWidget(self.drumkit_name_edit, 7, 1)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
@@ -448,7 +780,8 @@ class MainWindow(QWidget):
             self.bpm_checkbox.isChecked(),
             self.pitch_checkbox.isChecked(),
             self.drum_classify_checkbox.isChecked(),
-            self.sensitivity_slider.value()
+            self.sensitivity_slider.value(),
+            self.similarity_slider.value() / 100.0  # Convert percentage to 0.0-1.0 range
         )
         
         self.worker.progress_updated.connect(self.update_progress)
@@ -484,7 +817,7 @@ class ProcessingWorker(QThread):
     status_updated = pyqtSignal(str)
     
     def __init__(self, input_path, output_path, drumkit_name, output_format, 
-                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity):
+                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold):
         super().__init__()
         self.input_path = input_path
         self.output_path = output_path
@@ -495,12 +828,14 @@ class ProcessingWorker(QThread):
         self.detect_pitch = detect_pitch
         self.classify_drums = classify_drums
         self.sensitivity = sensitivity
+        self.similarity_threshold = similarity_threshold
         self.stop_flag = False
         
         # Initialize processors
         self.demucs_processor = DemucsProcessor()
         self.drum_classifier = DrumClassifier()
         self.pitch_detector = PitchDetector()
+        self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
     
     def run(self):
         """Main processing function with improved progress updates."""
@@ -675,6 +1010,13 @@ class ProcessingWorker(QThread):
                         filename_parts.append(pitch)
                 filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(output_dir, filename)
+                
+                # Check for similarity before saving
+                if self.similarity_checker.is_similar_to_existing(sample_audio, sample_rate, stem_name.capitalize()):
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
+                    continue
+
                 self.save_audio_sample(sample_audio, sample_rate, filepath)
                 sample_count += 1
             if hasattr(self, 'status_updated'):
@@ -778,6 +1120,12 @@ class ProcessingWorker(QThread):
                 filename = "_".join(filename_parts) + f".{self.output_format.capitalize()}"
                 filepath = os.path.join(target_dir, filename)
                 
+                # Check for similarity before saving
+                if self.similarity_checker.is_similar_to_existing(sample_audio, sample_rate, drum_type):
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
+                    continue
+
                 # Save sample
                 self.save_audio_sample(sample_audio, sample_rate, filepath)
                 sample_count += 1
@@ -855,6 +1203,7 @@ class ProcessingWorker(QThread):
                     "detect_pitch": self.detect_pitch,
                     "classify_drums": self.classify_drums,
                     "sensitivity": self.sensitivity,
+                    "similarity_threshold": self.similarity_threshold,
                     "output_format": self.output_format
                 }
             }
