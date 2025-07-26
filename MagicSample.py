@@ -10,8 +10,9 @@ This version uses Demucs for stem separation and includes:
 - Drum classification (hi-hat, snare, bass drum, etc.)
 - Organized drumkit folder structure
 - Similarity comparison to avoid duplicate samples
+- Sample processing timeout protection
 """
-__version__ = '0.0.4'
+__version__ = '0.0.5'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -20,6 +21,8 @@ import sys
 import os
 import time
 import json
+import logging
+import threading
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -53,6 +56,18 @@ def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath('.'), relative_path)
+
+class LogHandler(logging.Handler, QObject):
+    """Custom log handler that emits signals for GUI updates"""
+    log_signal = pyqtSignal(str)
+    
+    def __init__(self):
+        logging.Handler.__init__(self)
+        QObject.__init__(self)
+    
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_signal.emit(msg)
 
 class SampleSimilarityChecker:
     """Checks similarity between audio samples to avoid duplicates"""
@@ -322,7 +337,9 @@ class PitchDetector:
             hps = magnitude.copy()
             for harmonic in range(2, 5):  # Use harmonics 2, 3, 4
                 if len(magnitude) >= harmonic:
-                    hps[:len(magnitude)//harmonic] *= magnitude[::harmonic]
+                    # Ensure arrays have the same length for multiplication
+                    harmonic_length = len(magnitude) // harmonic
+                    hps[:harmonic_length] *= magnitude[::harmonic][:harmonic_length]
             
             # Find peak in HPS
             peak_idx = np.argmax(hps)
@@ -489,15 +506,14 @@ class DemucsProcessor:
     def load_model(self, model_name: str = "htdemucs"):
         """Load the Demucs model"""
         try:
-            # Patch: If running as frozen and model_name is 'htdemucs', load by path
-            if model_name == "htdemucs":
-                model_path = resource_path("torch/hub/checkpoints/955717e8-8726e21a.th")
-                self.model = get_model(model_path)
-            else:
-                self.model = get_model(model_name)
+            logging.info(f"Loading Demucs model: {model_name}")
+            # Use standard Demucs model loading
+            self.model = get_model(model_name)
             self.model.to(self.device)
+            logging.info(f"Successfully loaded Demucs model: {model_name}")
             print(f"Loaded Demucs model: {model_name}")
         except Exception as e:
+            logging.error(f"Error loading Demucs model: {e}")
             print(f"Error loading Demucs model: {e}")
             raise
     
@@ -507,11 +523,14 @@ class DemucsProcessor:
             self.load_model()
         
         try:
+            logging.info(f"Separating stems for: {audio_path}")
+            logging.info(f"Output directory: {output_dir}")
             print(f"Separating stems for: {audio_path}")
             print(f"Output directory: {output_dir}")
             
             # Load audio using librosa to ensure correct format
             wav, sr = librosa.load(audio_path, sr=self.sample_rate, mono=False)
+            logging.info(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
             print(f"Loaded audio with librosa: shape={wav.shape}, sample_rate={sr}")
             
             # Convert to torch tensor and ensure correct shape
@@ -525,6 +544,7 @@ class DemucsProcessor:
             
             # Convert to torch tensor
             wav_tensor = torch.from_numpy(wav).float()
+            logging.info(f"Converted to torch tensor: shape={wav_tensor.shape}")
             print(f"Converted to torch tensor: shape={wav_tensor.shape}")
             
             # Normalize
@@ -532,9 +552,11 @@ class DemucsProcessor:
             wav_tensor = (wav_tensor - ref.mean()) / ref.std()
             
             # Separate stems
+            logging.info("Applying Demucs model...")
             print("Applying Demucs model...")
             sources = apply_model(self.model, wav_tensor[None], device=self.device)[0]
             sources = sources * ref.std() + ref.mean()
+            logging.info(f"Separated into {len(sources)} stems")
             print(f"Separated into {len(sources)} stems")
             
             # Save stems
@@ -543,6 +565,7 @@ class DemucsProcessor:
             
             for i, (source, name) in enumerate(zip(sources, stem_names)):
                 stem_path = os.path.join(output_dir, f"{name}.wav")
+                logging.info(f"Saving {name} stem to: {stem_path}")
                 print(f"Saving {name} stem to: {stem_path}")
                 
                 # Convert back to numpy and save
@@ -553,14 +576,18 @@ class DemucsProcessor:
                 # Verify the file was created and has content
                 if os.path.exists(stem_path) and os.path.getsize(stem_path) > 0:
                     stem_paths[name] = stem_path
+                    logging.info(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
                     print(f"✓ {name} stem saved successfully ({os.path.getsize(stem_path)} bytes)")
                 else:
+                    logging.warning(f"✗ {name} stem file is empty or missing")
                     print(f"✗ {name} stem file is empty or missing")
             
+            logging.info(f"Successfully created {len(stem_paths)} stem files")
             print(f"Successfully created {len(stem_paths)} stem files")
             return stem_paths
             
         except Exception as e:
+            logging.error(f"Error in stem separation: {e}")
             print(f"Error in stem separation: {e}")
             import traceback
             traceback.print_exc()
@@ -580,7 +607,15 @@ class MainWindow(QWidget):
     def setup_ui(self):
         """Setup the user interface"""
         self.setWindowTitle("MagicSample")
-        self.setGeometry(100, 100, 800, 600)  # More compact size
+        self.setGeometry(100, 100, 1000, 700)  # Larger size for tabs
+        
+        # Set application icon
+        icon_path = resource_path("MagicSample_icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            logging.info(f"Application icon loaded from: {icon_path}")
+        else:
+            logging.warning(f"Application icon not found at: {icon_path}")
         
         # Main layout with centered alignment
         layout = QVBoxLayout()
@@ -596,6 +631,15 @@ class MainWindow(QWidget):
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
+        
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        
+        # Main processing tab
+        main_tab = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.setSpacing(10)
         
         # File selection section
         file_group = QGroupBox("File Selection")
@@ -634,7 +678,7 @@ class MainWindow(QWidget):
         file_layout.addWidget(output_btn, 1, 2)
         
         file_group.setLayout(file_layout)
-        layout.addWidget(file_group)
+        main_layout.addWidget(file_group)
         
         # Options section
         options_group = QGroupBox("Processing Options")
@@ -679,30 +723,41 @@ class MainWindow(QWidget):
         self.similarity_slider = QSlider(Qt.Orientation.Horizontal)
         self.similarity_slider.setRange(0, 100)  # 0% to 100%
         self.similarity_slider.setValue(80)  # Default 80%
-        self.similarity_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.similarity_slider.setTickInterval(10)
         options_layout.addWidget(self.similarity_slider, 5, 0, 1, 2)
+        
+        # Sample timeout input
+        timeout_label = QLabel("Sample Timeout (ms):")
+        timeout_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(timeout_label, 6, 0)
+        
+        self.timeout_input = QLineEdit()
+        self.timeout_input.setPlaceholderText("2000")
+        self.timeout_input.setText("2000")  # Default 2000ms
+        self.timeout_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.timeout_input.setFixedWidth(100)
+        options_layout.addWidget(self.timeout_input, 6, 1)
         
         # Output format and drumkit name in a row
         format_label = QLabel("Output Format:")
         format_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(format_label, 6, 0)
+        options_layout.addWidget(format_label, 7, 0)
         
         self.format_combo = QComboBox()
         self.format_combo.addItems(['WAV', 'FLAC', 'OGG'])
-        options_layout.addWidget(self.format_combo, 6, 1)
+        options_layout.addWidget(self.format_combo, 7, 1)
         
         drumkit_label = QLabel("Drumkit Name:")
         drumkit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(drumkit_label, 7, 0)
+        options_layout.addWidget(drumkit_label, 8, 0)
         
         self.drumkit_name_edit = QLineEdit()
         self.drumkit_name_edit.setPlaceholderText("MyDrumkit")
         self.drumkit_name_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(self.drumkit_name_edit, 7, 1)
+        options_layout.addWidget(self.drumkit_name_edit, 8, 1)
         
         options_group.setLayout(options_layout)
-        layout.addWidget(options_group)
+        main_layout.addWidget(options_group)
         
         # Progress section
         progress_group = QGroupBox("Progress")
@@ -719,7 +774,7 @@ class MainWindow(QWidget):
         progress_layout.addWidget(self.status_label)
         
         progress_group.setLayout(progress_layout)
-        layout.addWidget(progress_group)
+        main_layout.addWidget(progress_group)
         
         # Control buttons
         button_layout = QHBoxLayout()
@@ -737,9 +792,250 @@ class MainWindow(QWidget):
         self.stop_button.setFixedWidth(100)
         button_layout.addWidget(self.stop_button)
         
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
+        main_tab.setLayout(main_layout)
         
+        # Logging tab
+        log_tab = QWidget()
+        log_layout = QVBoxLayout()
+        
+        # Log controls
+        log_controls = QHBoxLayout()
+        
+        self.clear_log_button = QPushButton("Clear Log")
+        self.clear_log_button.clicked.connect(self.clear_log)
+        log_controls.addWidget(self.clear_log_button)
+        
+        self.save_log_button = QPushButton("Save Log")
+        self.save_log_button.clicked.connect(self.save_log)
+        log_controls.addWidget(self.save_log_button)
+        
+        log_layout.addLayout(log_controls)
+        
+        # Log text area
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setFont(QFont("Consolas", 9))
+        log_layout.addWidget(self.log_text)
+        
+        log_tab.setLayout(log_layout)
+        
+        # Help tab
+        help_tab = QWidget()
+        help_layout = QVBoxLayout()
+        
+        # Help text area
+        self.help_text = QTextEdit()
+        self.help_text.setReadOnly(True)
+        self.help_text.setFont(QFont("Arial", 10))
+        
+        # Create comprehensive help content
+        help_content = """
+<h2>MagicSample - Audio Sample Extraction Tool</h2>
+
+<h3>📁 File Selection</h3>
+<p><b>Input Audio File:</b> Select your source audio file (WAV, MP3, FLAC, OGG, M4A). This is the file that will be processed into individual samples.</p>
+<p><b>Output Directory:</b> Choose where your drumkit folder will be created. The program will create a new folder with your drumkit name inside this directory.</p>
+
+<h3>⚙️ Processing Options</h3>
+
+<h4>🔧 Core Features</h4>
+<p><b>Split to Stems:</b> Uses Demucs AI to separate your audio into 4 stems: Drums, Bass, Vocals, and Other. When enabled, samples are organized into separate folders for each stem type. When disabled, processes the whole file as one category.</p>
+
+<p><b>Detect BPM:</b> Analyzes the audio to find the tempo (beats per minute). The detected BPM is included in sample filenames (e.g., "Kick_001_120BPM_C2.WAV").</p>
+
+<p><b>Detect Pitch:</b> Uses advanced multi-algorithm pitch detection to find the musical note of each sample. Results are included in filenames using Scientific Pitch Notation (e.g., "C5", "F#3").</p>
+
+<p><b>Classify Drums:</b> Automatically categorizes drum samples into subfolders: Kick, HiHat, and Perc (percussion). Only applies to the Drums stem.</p>
+
+<h4>🎛️ Sensitivity Controls</h4>
+<p><b>Sample Detection Sensitivity:</b> Controls how the program detects individual samples within the audio.</p>
+<ul>
+<li><b>Lower values (5-15):</b> More sensitive - detects more samples, including quieter and shorter sounds</li>
+<li><b>Higher values (20-30):</b> Less sensitive - detects fewer samples, only the most prominent sounds</li>
+<li><b>Recommended:</b> Start with 15, adjust based on your audio content</li>
+</ul>
+
+<p><b>Sample Similarity Threshold:</b> Controls how similar samples need to be before one is rejected as a duplicate.</p>
+<ul>
+<li><b>0%:</b> Very strict - only identical samples are considered duplicates</li>
+<li><b>50%:</b> Balanced - moderately similar samples are rejected</li>
+<li><b>80%:</b> Default - similar samples are rejected (recommended)</li>
+<li><b>100%:</b> Very permissive - only very different samples are kept</li>
+</ul>
+
+<h4>⏱️ Performance Settings</h4>
+<p><b>Sample Timeout (ms):</b> Maximum time allowed for processing each individual sample. If a sample takes longer than this time to process (pitch detection, similarity check, etc.), it will be skipped but any information gathered before the timeout will still be included in the filename.</p>
+<ul>
+<li><b>1000ms:</b> Fast processing, may skip complex samples</li>
+<li><b>2000ms:</b> Default - good balance of speed and accuracy</li>
+<li><b>5000ms:</b> Slower but more thorough processing</li>
+</ul>
+
+<h4>📁 Output Settings</h4>
+<p><b>Output Format:</b> Choose the audio format for your samples.</p>
+<ul>
+<li><b>WAV:</b> Uncompressed, highest quality, larger file sizes</li>
+<li><b>FLAC:</b> Lossless compression, high quality, smaller than WAV</li>
+<li><b>OGG:</b> Lossy compression, smaller file sizes, good quality</li>
+</ul>
+
+<p><b>Drumkit Name:</b> The name of the folder that will be created to contain all your samples. This will be the main folder containing all your organized samples.</p>
+
+<h3>📂 Output Structure</h3>
+
+<p><b>With "Split to Stems" enabled:</b></p>
+<pre>
+YourDrumkit/
+├── Drums/
+│   ├── Kick/
+│   │   ├── Kick_001_120BPM_C2.WAV
+│   │   └── Kick_002_120BPM_F1.WAV
+│   ├── HiHat/
+│   │   ├── HiHat_001_120BPM_G#4.WAV
+│   │   └── HiHat_002_120BPM_A4.WAV
+│   └── Perc/
+│       ├── Perc_001_120BPM_D3.WAV
+│       └── Perc_002_120BPM_E3.WAV
+├── Bass/
+│   ├── Bass_001_120BPM_F1.WAV
+│   └── Bass_002_120BPM_C2.WAV
+├── Vocals/
+│   └── Vocals_120BPM.WAV
+└── Other/
+    ├── Other_001_120BPM_A3.WAV
+    └── Other_002_120BPM_D4.WAV
+</pre>
+
+<p><b>With "Split to Stems" disabled:</b></p>
+<pre>
+YourDrumkit/
+└── Samples/
+    ├── Sample_001_120BPM_C2.WAV
+    ├── Sample_002_120BPM_F1.WAV
+    └── Sample_003_120BPM_G#4.WAV
+</pre>
+
+<h3>🎵 Filename Format</h3>
+<p>Samples are named using this pattern:</p>
+<p><code>[Type]_[Number]_[BPM]BPM_[Pitch].[Format]</code></p>
+
+<p><b>Examples:</b></p>
+<ul>
+<li><code>Kick_001_120BPM_C2.WAV</code> - Kick drum, sample 1, 120 BPM, C2 pitch</li>
+<li><code>Bass_002_140BPM_F1.WAV</code> - Bass, sample 2, 140 BPM, F1 pitch</li>
+<li><code>Vocals_120BPM.WAV</code> - Vocals (whole file), 120 BPM, no pitch</li>
+</ul>
+
+<h3>🔍 Troubleshooting</h3>
+
+<h4>Common Issues</h4>
+<p><b>No samples created:</b> Try lowering the Sample Detection Sensitivity or increasing the timeout.</p>
+
+<p><b>Too many similar samples:</b> Increase the Sample Similarity Threshold.</p>
+
+<p><b>Processing is slow:</b> Reduce the Sample Timeout or disable pitch detection for faster processing.</p>
+
+<p><b>Stem separation fails:</b> Check the Log tab for detailed error messages. The program will fall back to processing the whole file.</p>
+
+<h4>Performance Tips</h4>
+<ul>
+<li>Use WAV or FLAC input files for best quality</li>
+<li>Disable pitch detection if you don't need pitch information</li>
+<li>Adjust sensitivity based on your audio content</li>
+<li>Use the Log tab to monitor processing progress</li>
+</ul>
+
+<h3>📊 Advanced Features</h3>
+
+<h4>Pitch Detection Algorithms</h4>
+<p>The program uses 4 different algorithms and combines their results:</p>
+<ul>
+<li><b>Autocorrelation:</b> Time-domain periodicity detection</li>
+<li><b>Harmonic Product Spectrum (HPS):</b> Frequency-domain fundamental detection</li>
+<li><b>Cepstrum:</b> Frequency-domain deconvolution</li>
+<li><b>YIN Algorithm:</b> Robust time-domain pitch detection</li>
+</ul>
+
+<h4>Similarity Detection</h4>
+<p>Compares samples using multiple audio features:</p>
+<ul>
+<li>MFCC (Mel-frequency cepstral coefficients)</li>
+<li>Spectral centroid (brightness)</li>
+<li>Spectral rolloff (frequency distribution)</li>
+<li>RMS energy (loudness)</li>
+<li>Zero crossing rate (noisiness)</li>
+</ul>
+
+<h4>Drum Classification</h4>
+<p>Classifies drum samples based on frequency characteristics:</p>
+<ul>
+<li><b>Kick:</b> Low frequency content (typically below 200Hz)</li>
+<li><b>HiHat:</b> High frequency content (typically above 2000Hz)</li>
+<li><b>Perc:</b> Mid-frequency content (everything else)</li>
+</ul>
+
+<p><i>For more detailed information and troubleshooting, check the Log tab during processing.</i></p>
+        """
+        
+        self.help_text.setHtml(help_content)
+        help_layout.addWidget(self.help_text)
+        
+        help_tab.setLayout(help_layout)
+        
+        # Add tabs to widget
+        self.tab_widget.addTab(main_tab, "Processing")
+        self.tab_widget.addTab(help_tab, "Help")
+        self.tab_widget.addTab(log_tab, "Log")
+        
+        layout.addWidget(self.tab_widget)
         self.setLayout(layout)
+        
+        # Setup logging
+        self.setup_logging()
+    
+    def setup_logging(self):
+        """Setup logging to the GUI"""
+        # Create custom log handler
+        self.log_handler = LogHandler()
+        self.log_handler.log_signal.connect(self.add_log_message)
+        
+        # Configure formatter
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        self.log_handler.setFormatter(formatter)
+        
+        # Add handler to root logger
+        logging.getLogger().addHandler(self.log_handler)
+        logging.getLogger().setLevel(logging.INFO)
+        
+        # Log initial message
+        self.add_log_message("MagicSample started - Logging initialized")
+    
+    def add_log_message(self, message):
+        """Add a message to the log display"""
+        self.log_text.append(message)
+        # Auto-scroll to bottom
+        self.log_text.verticalScrollBar().setValue(
+            self.log_text.verticalScrollBar().maximum()
+        )
+    
+    def clear_log(self):
+        """Clear the log display"""
+        self.log_text.clear()
+        self.add_log_message("Log cleared")
+    
+    def save_log(self):
+        """Save the log to a file"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Log File", "", "Text Files (*.txt);;All Files (*)"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.log_text.toPlainText())
+                self.add_log_message(f"Log saved to: {file_path}")
+            except Exception as e:
+                self.add_log_message(f"Error saving log: {e}")
     
     def select_input_file(self):
         """Select input audio file"""
@@ -766,6 +1062,16 @@ class MainWindow(QWidget):
         self.stop_button.setEnabled(True)
         self.progress_bar.setValue(0)
         
+        # Validate timeout input
+        try:
+            timeout_value = int(self.timeout_input.text() or "2000")
+            if timeout_value <= 0:
+                QMessageBox.warning(self, "Error", "Timeout must be a positive number")
+                return
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Timeout must be a valid number")
+            return
+        
         # Start processing in a separate thread
         self.worker = ProcessingWorker(
             self.input_path_edit.text(),
@@ -777,7 +1083,8 @@ class MainWindow(QWidget):
             self.pitch_checkbox.isChecked(),
             self.drum_classify_checkbox.isChecked(),
             self.sensitivity_slider.value(),
-            self.similarity_slider.value() / 100.0  # Convert percentage to 0.0-1.0 range
+            self.similarity_slider.value() / 100.0,  # Convert percentage to 0.0-1.0 range
+            timeout_value
         )
         
         self.worker.progress_updated.connect(self.update_progress)
@@ -813,7 +1120,7 @@ class ProcessingWorker(QThread):
     status_updated = pyqtSignal(str)
     
     def __init__(self, input_path, output_path, drumkit_name, output_format, 
-                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold):
+                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms):
         super().__init__()
         self.input_path = input_path
         self.output_path = output_path
@@ -825,6 +1132,7 @@ class ProcessingWorker(QThread):
         self.classify_drums = classify_drums
         self.sensitivity = sensitivity
         self.similarity_threshold = similarity_threshold
+        self.timeout_ms = timeout_ms
         self.stop_flag = False
         
         # Initialize processors
@@ -833,28 +1141,72 @@ class ProcessingWorker(QThread):
         self.pitch_detector = PitchDetector()
         self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
     
+    def run_with_timeout(self, func, *args, **kwargs):
+        """Run a function with timeout handling"""
+        import signal
+        import threading
+        import time
+        
+        result = [None]
+        exception = [None]
+        completed = [False]
+        
+        def target():
+            try:
+                result[0] = func(*args, **kwargs)
+            except Exception as e:
+                exception[0] = e
+            finally:
+                completed[0] = True
+        
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        
+        # Wait for completion or timeout
+        start_time = time.time()
+        while not completed[0] and (time.time() - start_time) * 1000 < self.timeout_ms:
+            time.sleep(0.01)  # Small sleep to prevent busy waiting
+        
+        if not completed[0]:
+            # Timeout occurred
+            return None, "timeout"
+        elif exception[0]:
+            # Exception occurred
+            return None, str(exception[0])
+        else:
+            # Success
+            return result[0], "success"
+    
     def run(self):
         """Main processing function with improved progress updates."""
         try:
+            logging.info("Starting audio processing...")
             self.status_updated.emit("Loading audio file...")
             self.progress_updated.emit(5)
             audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
+            logging.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
             print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
             bpm = None
             if self.detect_bpm:
                 self.status_updated.emit("Detecting BPM...")
                 self.progress_updated.emit(10)
+                logging.info("Detecting BPM...")
                 bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
+                logging.info(f"Detected BPM: {bpm}")
                 print(f"Detected BPM: {bpm}")
             drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
             os.makedirs(drumkit_path, exist_ok=True)
+            logging.info(f"Created drumkit directory: {drumkit_path}")
             if self.split_stems:
                 self.status_updated.emit("Separating stems with Demucs...")
                 self.progress_updated.emit(20)
+                logging.info("Starting stem separation with Demucs...")
                 temp_dir = os.path.join(drumkit_path, "temp_stems")
                 os.makedirs(temp_dir, exist_ok=True)
                 try:
                     stem_paths = self.demucs_processor.separate_stems(self.input_path, temp_dir)
+                    logging.info(f"Created stems: {list(stem_paths.keys())}")
                     print(f"Created stems: {list(stem_paths.keys())}")
                     stem_count = len(stem_paths)
                     for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
@@ -863,10 +1215,13 @@ class ProcessingWorker(QThread):
                         progress = 20 + (i * 60 // stem_count)
                         self.status_updated.emit(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
                         self.progress_updated.emit(progress)
+                        logging.info(f"Processing {stem_name} stem ({i+1}/{stem_count})...")
                         if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
+                            logging.warning(f"Stem file {stem_path} is empty or missing")
                             print(f"Warning: Stem file {stem_path} is empty or missing")
                             continue
                         stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
+                        logging.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         print(f"Loaded {stem_name} stem: {stem_audio.shape}")
                         stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
                         os.makedirs(stem_dir, exist_ok=True)
@@ -874,34 +1229,46 @@ class ProcessingWorker(QThread):
                             vocals_filename = f"Vocals_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals.{self.output_format.upper()}"
                             vocals_path = os.path.join(stem_dir, vocals_filename)
                             self.save_audio_sample(stem_audio, stem_sr, vocals_path)
+                            logging.info(f"Saved vocals as whole file: {vocals_filename}")
                             print(f"Saved vocals as whole file: {vocals_filename}")
                         elif stem_name == "drums":
                             self.status_updated.emit("Splitting drums into one-shots...")
+                            logging.info("Processing drums with subfolder classification...")
                             self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm)
                         else:
                             self.status_updated.emit(f"Detecting one-shots in {stem_name}...")
+                            logging.info(f"Processing {stem_name} into individual samples...")
                             sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm)
+                            logging.info(f"Created {sample_count} samples for {stem_name}")
                             print(f"Created {sample_count} samples for {stem_name}")
                     import shutil
                     shutil.rmtree(temp_dir)
+                    logging.info("Cleaned up temporary stem files")
                 except Exception as e:
+                    logging.error(f"Error in stem separation: {e}")
                     print(f"Error in stem separation: {e}")
                     self.status_updated.emit(f"Stem separation failed: {str(e)}")
                     self.status_updated.emit("Falling back to processing whole file...")
+                    logging.info("Falling back to processing whole file...")
                     samples_dir = os.path.join(drumkit_path, "Samples")
                     os.makedirs(samples_dir, exist_ok=True)
                     sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
+                    logging.info(f"Created {sample_count} samples from whole file")
                     print(f"Created {sample_count} samples from whole file")
             else:
                 self.status_updated.emit("Processing audio into samples...")
                 self.progress_updated.emit(40)
+                logging.info("Processing whole file into samples...")
                 samples_dir = os.path.join(drumkit_path, "Samples")
                 os.makedirs(samples_dir, exist_ok=True)
                 sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm)
+                logging.info(f"Created {sample_count} samples from whole file")
                 print(f"Created {sample_count} samples from whole file")
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")
+            logging.info("Drumkit creation completed!")
         except Exception as e:
+            logging.error(f"Processing error: {e}")
             self.status_updated.emit(f"Error: {str(e)}")
             print(f"Processing error: {e}")
             import traceback
@@ -930,6 +1297,7 @@ class ProcessingWorker(QThread):
     def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm):
         """Process a stem into individual samples, with improved one-shot detection for bass/other."""
         try:
+            logging.info(f"Processing {stem_name} into samples...")
             # Convert to mono for sample detection
             if len(audio_data.shape) > 1:
                 audio_mono = np.mean(audio_data, axis=0)
@@ -996,29 +1364,65 @@ class ProcessingWorker(QThread):
                     self.status_updated.emit(f"Saving {stem_name} sample {i+1}/{total_samples} (duration: {sample_duration:.2f}s)...")
                 if hasattr(self, 'progress_updated'):
                     self.progress_updated.emit(40 + int(50 * (i+1) / max(1, total_samples)))
-                # Generate filename
+                # Generate filename with timeout handling
                 filename_parts = [f"{stem_name.capitalize()}_{i+1:03d}"]
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
+                
+                # Pitch detection with timeout
+                pitch = None
                 if self.detect_pitch:
-                    pitch = self.pitch_detector.detect_pitch(sample_audio, sample_rate)
-                    if pitch and pitch != "N/A":
+                    pitch_result, pitch_status = self.run_with_timeout(
+                        self.pitch_detector.detect_pitch, sample_audio, sample_rate
+                    )
+                    if pitch_status == "success" and pitch_result and pitch_result != "N/A":
+                        pitch = pitch_result
                         filename_parts.append(pitch)
+                    elif pitch_status == "timeout":
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Pitch detection timeout for {stem_name} sample {i+1}, continuing...")
+                    else:
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                
                 filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(output_dir, filename)
                 
-                # Check for similarity before saving
-                if self.similarity_checker.is_similar_to_existing(sample_audio, sample_rate, stem_name.capitalize()):
+                # Similarity check with timeout
+                similarity_result, similarity_status = self.run_with_timeout(
+                    self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, stem_name.capitalize()
+                )
+                
+                if similarity_status == "timeout":
+                    logging.warning(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
+                    # Save sample even if similarity check times out
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
+                elif similarity_status == "success" and similarity_result:
+                    logging.info(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
                     continue
-
-                self.save_audio_sample(sample_audio, sample_rate, filepath)
-                sample_count += 1
+                elif similarity_status == "success" and not similarity_result:
+                    # Not similar, save the sample
+                    logging.info(f"Saving {stem_name} sample {i+1}: {filename}")
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
+                else:
+                    # Similarity check failed, save sample anyway
+                    logging.warning(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
+            logging.info(f"Successfully created {sample_count} samples for {stem_name}")
             if hasattr(self, 'status_updated'):
                 self.status_updated.emit(f"Successfully created {sample_count} samples for {stem_name}.")
             return sample_count
         except Exception as e:
+            logging.error(f"Error processing stem {stem_name}: {e}")
             print(f"Error processing stem {stem_name}: {e}")
             import traceback
             traceback.print_exc()
@@ -1100,31 +1504,55 @@ class ProcessingWorker(QThread):
                     target_dir = perc_dir
                     prefix = "Perc"
                 
-                # Generate filename
+                # Generate filename with timeout handling
                 filename_parts = [f"{prefix}_{i+1:03d}"]
                 
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
                 
-                # Detect pitch if requested
+                # Pitch detection with timeout
                 if self.detect_pitch:
-                    pitch = self.pitch_detector.detect_pitch(sample_audio, sample_rate)
-                    if pitch and pitch != "N/A":
-                        filename_parts.append(pitch)
+                    pitch_result, pitch_status = self.run_with_timeout(
+                        self.pitch_detector.detect_pitch, sample_audio, sample_rate
+                    )
+                    if pitch_status == "success" and pitch_result and pitch_result != "N/A":
+                        filename_parts.append(pitch_result)
+                    elif pitch_status == "timeout":
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Pitch detection timeout for {drum_type} sample {i+1}, continuing...")
+                    else:
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Pitch detection failed for {drum_type} sample {i+1}: {pitch_status}")
                 
                 # Create final filename
                 filename = "_".join(filename_parts) + f".{self.output_format.capitalize()}"
                 filepath = os.path.join(target_dir, filename)
                 
-                # Check for similarity before saving
-                if self.similarity_checker.is_similar_to_existing(sample_audio, sample_rate, drum_type):
+                # Similarity check with timeout
+                similarity_result, similarity_status = self.run_with_timeout(
+                    self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, drum_type
+                )
+                
+                if similarity_status == "timeout":
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Similarity check timeout for {drum_type} sample {i+1}, saving sample...")
+                    # Save sample even if similarity check times out
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
+                elif similarity_status == "success" and similarity_result:
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
                     continue
-
-                # Save sample
-                self.save_audio_sample(sample_audio, sample_rate, filepath)
-                sample_count += 1
+                elif similarity_status == "success" and not similarity_result:
+                    # Not similar, save the sample
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
+                else:
+                    # Similarity check failed, save sample anyway
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Similarity check failed for {drum_type} sample {i+1}: {similarity_status}, saving sample...")
+                    self.save_audio_sample(sample_audio, sample_rate, filepath)
+                    sample_count += 1
             
             print(f"Successfully created {sample_count} drum samples:")
             print(f"  - Kick: {len(os.listdir(kick_dir))} samples")
@@ -1200,6 +1628,7 @@ class ProcessingWorker(QThread):
                     "classify_drums": self.classify_drums,
                     "sensitivity": self.sensitivity,
                     "similarity_threshold": self.similarity_threshold,
+                    "sample_timeout_ms": self.timeout_ms,
                     "output_format": self.output_format
                 }
             }
