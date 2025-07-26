@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.6-blue)
+![Version](https://img.shields.io/badge/version-0.0.7-blue)
 
 ---
 
@@ -22,6 +22,7 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Safe Stop & Cleanup**: Preserves processed samples when stopping mid-process
 - **Skip Functionality**: Skip individual samples during processing
 - **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **YouTube Integration**: Download and process YouTube videos, playlists, and channels directly
 
 ## Installation
 
@@ -97,8 +98,26 @@ MagicSample/
 ## Usage
 
 1. **Run the application**: `python MagicSample.py`
-2. **Select Input File**: Choose an audio file (WAV, MP3, FLAC, OGG, M4A)
+2. **Select Input Files**: Choose audio files (WAV, MP3, FLAC, OGG, M4A) and/or add YouTube URLs
 3. **Choose Output Directory**: Select where to save the drumkit
+
+### YouTube Integration
+
+MagicSample supports processing YouTube content directly:
+
+- **Single Videos**: Add YouTube video URLs to download and process
+- **Playlists**: Process entire playlists automatically
+- **Channels**: Download videos from YouTube channels
+- **Automatic Audio Extraction**: Converts videos to high-quality audio
+- **Mixed Processing**: Combine local files and YouTube URLs in the same session
+- **Automatic Cleanup**: Removes downloaded files after processing
+
+**Supported YouTube URL Formats:**
+- `https://www.youtube.com/watch?v=VIDEO_ID`
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://www.youtube.com/channel/CHANNEL_ID`
+- `https://youtu.be/VIDEO_ID`
+- `https://www.youtube.com/shorts/VIDEO_ID`
 4. **Configure Options**:
    - **Split to stems**: Separate into drums, bass, vocals, other
    - **Detect BPM**: Automatically detect and label BPM
@@ -176,6 +195,7 @@ If you encounter installation problems:
 - **soundfile**: Audio file I/O
 - **numpy**: Numerical computing
 - **torch**: Deep learning framework
+- **yt-dlp**: YouTube video downloading
 - **scipy**: Scientific computing
 
 ## License

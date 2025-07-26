@@ -25,4 +25,7 @@ demucs>=4.0.0
 
 # Optional visualization
 matplotlib>=3.5.0 
-scikit-learn==1.3.2 
+scikit-learn==1.3.2
+
+# YouTube downloading
+yt-dlp>=2023.0.0 

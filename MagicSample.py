@@ -12,7 +12,7 @@ This version uses Demucs for stem separation and includes:
 - Similarity comparison to avoid duplicate samples
 - Sample processing timeout protection
 """
-__version__ = '0.0.6'
+__version__ = '0.0.7'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -48,6 +48,11 @@ import torchaudio
 from demucs.pretrained import get_model
 from demucs.apply import apply_model
 from demucs.audio import AudioFile, save_audio
+
+# YouTube downloading
+import yt_dlp
+import tempfile
+import re
 
 # Pitch detection - using our own advanced multi-algorithm implementation
 
@@ -665,6 +670,171 @@ class DemucsProcessor:
             traceback.print_exc()
             raise
 
+class YouTubeDownloader:
+    """Handles YouTube video downloading and audio extraction"""
+    
+    def __init__(self, logger=None):
+        self.logger = logger
+        self.temp_dir = None
+        self.downloaded_files = []
+    
+    def is_youtube_url(self, url):
+        """Check if a string is a YouTube URL"""
+        youtube_patterns = [
+            r'(?:https?://)?(?:www\.)?youtube\.com/watch\?v=[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtube\.com/playlist\?list=[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtube\.com/channel/[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtube\.com/c/[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtube\.com/user/[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtu\.be/[\w-]+',
+            r'(?:https?://)?(?:www\.)?youtube\.com/shorts/[\w-]+'
+        ]
+        
+        for pattern in youtube_patterns:
+            if re.match(pattern, url, re.IGNORECASE):
+                return True
+        return False
+    
+    def download_youtube_audio(self, url, output_dir):
+        """Download YouTube video and extract audio"""
+        try:
+            if self.logger:
+                self.logger.info(f"Downloading YouTube content: {url}")
+            
+            # Create temporary directory for downloads
+            if not self.temp_dir:
+                self.temp_dir = tempfile.mkdtemp(prefix="magicsample_youtube_")
+                if self.logger:
+                    self.logger.info(f"Created temporary directory: {self.temp_dir}")
+            
+            # Configure yt-dlp options
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(self.temp_dir, '%(title)s.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'wav',
+                    'preferredquality': '192',
+                }],
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'ignoreerrors': False,
+                'nocheckcertificate': True,
+                'prefer_ffmpeg': True,
+                'geo_bypass': True,
+            }
+            
+            downloaded_files = []
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Get video info first
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    if self.logger:
+                        self.logger.info(f"Extracted info for: {info.get('title', 'Unknown')}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Failed to extract info for {url}: {e}")
+                    return []
+                
+                # Handle playlists
+                if 'entries' in info:
+                    if self.logger:
+                        self.logger.info(f"Processing playlist with {len(info['entries'])} videos")
+                    
+                    for i, entry in enumerate(info['entries']):
+                        if entry is None:
+                            continue
+                        
+                        try:
+                            if self.logger:
+                                self.logger.info(f"Downloading playlist item {i+1}/{len(info['entries'])}: {entry.get('title', 'Unknown')}")
+                            
+                            # Download the video
+                            ydl.download([entry['webpage_url']])
+                            
+                            # Find the downloaded file
+                            for file in os.listdir(self.temp_dir):
+                                if file.endswith('.wav') and not file in downloaded_files:
+                                    file_path = os.path.join(self.temp_dir, file)
+                                    downloaded_files.append(file_path)
+                                    if self.logger:
+                                        self.logger.info(f"Downloaded: {file}")
+                                    break
+                                    
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.error(f"Failed to download playlist item {i+1}: {e}")
+                            continue
+                else:
+                    # Single video
+                    try:
+                        if self.logger:
+                            self.logger.info(f"Downloading single video: {info.get('title', 'Unknown')}")
+                        
+                        ydl.download([url])
+                        
+                        # Find the downloaded file
+                        for file in os.listdir(self.temp_dir):
+                            if file.endswith('.wav') and not file in downloaded_files:
+                                file_path = os.path.join(self.temp_dir, file)
+                                downloaded_files.append(file_path)
+                                if self.logger:
+                                    self.logger.info(f"Downloaded: {file}")
+                                break
+                                
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to download video: {e}")
+                        return []
+            
+            # Store downloaded files for cleanup
+            self.downloaded_files.extend(downloaded_files)
+            
+            if self.logger:
+                self.logger.info(f"Successfully downloaded {len(downloaded_files)} audio files")
+            
+            return downloaded_files
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in YouTube download: {e}")
+            return []
+    
+    def cleanup(self):
+        """Clean up downloaded files and temporary directory"""
+        try:
+            # Remove downloaded files
+            for file_path in self.downloaded_files:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        if self.logger:
+                            self.logger.info(f"Cleaned up: {file_path}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Failed to remove file {file_path}: {e}")
+            
+            # Remove temporary directory
+            if self.temp_dir and os.path.exists(self.temp_dir):
+                try:
+                    import shutil
+                    shutil.rmtree(self.temp_dir)
+                    if self.logger:
+                        self.logger.info(f"Cleaned up temporary directory: {self.temp_dir}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Failed to remove temp directory {self.temp_dir}: {e}")
+            
+            # Reset
+            self.downloaded_files = []
+            self.temp_dir = None
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error during cleanup: {e}")
+
 class MainWindow(QWidget):
     """Main application window"""
     
@@ -674,6 +844,7 @@ class MainWindow(QWidget):
         self.drum_classifier = DrumClassifier()
         self.dominant_frequency_detector = DominantFrequencyDetector()
         self.similarity_checker = SampleSimilarityChecker()
+        self.youtube_downloader = YouTubeDownloader()
         self.setup_ui()  # Setup UI first to create log_text widget
         self.setup_logging()  # Then setup logging
     
@@ -741,11 +912,11 @@ class MainWindow(QWidget):
         file_layout.setSpacing(10)
         
         # Input file selection
-        input_label = QLabel("Input Audio Files:")
+        input_label = QLabel("Input Audio Files & YouTube URLs:")
         input_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         file_layout.addWidget(input_label, 0, 0)
         
-        # Create a list widget to show selected files
+        # Create a list widget to show selected files and URLs
         self.input_files_list = QListWidget()
         self.input_files_list.setMaximumHeight(100)
         self.input_files_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
@@ -758,6 +929,11 @@ class MainWindow(QWidget):
         input_btn.clicked.connect(self.select_input_files)
         input_btn.setFixedWidth(80)
         file_buttons_layout.addWidget(input_btn)
+        
+        youtube_btn = QPushButton("Add YouTube")
+        youtube_btn.clicked.connect(self.add_youtube_url)
+        youtube_btn.setFixedWidth(80)
+        file_buttons_layout.addWidget(youtube_btn)
         
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(self.remove_selected_files)
@@ -956,7 +1132,35 @@ class MainWindow(QWidget):
 <p><b>Stop:</b> Safely stops processing and performs cleanup operations. All samples processed up to that point will be saved in the correct folder structure with metadata.</p>
 
 <h3>📁 File Selection</h3>
-<p><b>Input Audio File:</b> Select your source audio file (WAV, MP3, FLAC, OGG, M4A). This is the file that will be processed into individual samples.</p>
+<p><b>Input Audio Files & YouTube URLs:</b> You can mix local audio files and YouTube URLs in the same processing session.</p>
+
+<h4>📂 Local Files</h4>
+<p><b>Add Files:</b> Select your source audio files (WAV, MP3, FLAC, OGG, M4A). These files will be processed into individual samples.</p>
+
+<h4>🎥 YouTube Support</h4>
+<p><b>Add YouTube:</b> Add YouTube URLs to download and process videos, playlists, or channels.</p>
+
+<p><b>Supported YouTube URLs:</b></p>
+<ul>
+<li><b>Single Videos:</b> https://www.youtube.com/watch?v=VIDEO_ID</li>
+<li><b>Playlists:</b> https://www.youtube.com/playlist?list=PLAYLIST_ID</li>
+<li><b>Channels:</b> https://www.youtube.com/channel/CHANNEL_ID</li>
+<li><b>User Channels:</b> https://www.youtube.com/user/USERNAME</li>
+<li><b>Custom URLs:</b> https://www.youtube.com/c/CUSTOM_NAME</li>
+<li><b>Shorts:</b> https://www.youtube.com/shorts/VIDEO_ID</li>
+<li><b>Short URLs:</b> https://youtu.be/VIDEO_ID</li>
+</ul>
+
+<p><b>YouTube Processing Features:</b></p>
+<ul>
+<li><b>Automatic Download:</b> Downloads videos and extracts audio automatically</li>
+<li><b>Playlist Support:</b> Processes all videos in a playlist</li>
+<li><b>Channel Support:</b> Downloads videos from channels</li>
+<li><b>Audio Extraction:</b> Converts videos to high-quality WAV audio</li>
+<li><b>Automatic Cleanup:</b> Removes downloaded files after processing</li>
+<li><b>Error Handling:</b> Continues processing if individual videos fail</li>
+</ul>
+
 <p><b>Output Directory:</b> Choose where your drumkit folder will be created. The program will create a new folder with your drumkit name inside this directory.</p>
 
 <h3>⚙️ Processing Options</h3>
@@ -1234,8 +1438,30 @@ YourDrumkit/
         """Clear all files from the list"""
         self.input_files_list.clear()
     
+    def add_youtube_url(self):
+        """Add YouTube URL to the input list"""
+        url, ok = QInputDialog.getText(
+            self, "Add YouTube URL", 
+            "Enter YouTube URL (video, playlist, or channel):",
+            QLineEdit.EchoMode.Normal
+        )
+        
+        if ok and url.strip():
+            url = url.strip()
+            if self.youtube_downloader.is_youtube_url(url):
+                # Add URL to list if not already present
+                items = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
+                if url not in items:
+                    self.input_files_list.addItem(url)
+                    if self.logger:
+                        self.logger.info(f"Added YouTube URL: {url}")
+                else:
+                    QMessageBox.information(self, "Info", "This URL is already in the list.")
+            else:
+                QMessageBox.warning(self, "Invalid URL", "Please enter a valid YouTube URL.")
+    
     def get_input_files(self):
-        """Get list of all input files"""
+        """Get list of all input files and URLs"""
         files = []
         for i in range(self.input_files_list.count()):
             files.append(self.input_files_list.item(i).text())
@@ -1287,6 +1513,9 @@ YourDrumkit/
                 timeout_value,
                 self.logger  # Pass the logger
             )
+            
+            # Pass the YouTube downloader to the worker
+            self.worker.youtube_downloader = self.youtube_downloader
             
             self.worker.progress_updated.connect(self.update_progress)
             self.worker.status_updated.connect(self.update_status)
@@ -1382,6 +1611,7 @@ class ProcessingWorker(QThread):
             self.drum_classifier = DrumClassifier()
             self.dominant_frequency_detector = DominantFrequencyDetector()
             self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
+            self.youtube_downloader = YouTubeDownloader(logger)
             # Note: We'll use the main window's logger for this class
             pass  # Logging will be handled by the main window
         except Exception as e:
@@ -1447,7 +1677,7 @@ class ProcessingWorker(QThread):
                 self.status_updated.emit(f"Error: Failed to create output directory - {str(e)}")
                 return
             
-            # Process each input file
+            # Process each input file or YouTube URL
             total_files = len(self.input_files)
             for file_index, input_path in enumerate(self.input_files):
                 # Reset similarity checker for each file so only compare within the same file
@@ -1455,143 +1685,330 @@ class ProcessingWorker(QThread):
                 if self.stop_flag:
                     break
                 
-                if self.logger:
-                    self.logger.info(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
-                self.status_updated.emit(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
-                
-                # Load audio file with error handling
-                try:
-                    audio_data, sample_rate = librosa.load(input_path, sr=None, mono=False)
+                # Check if this is a YouTube URL
+                if self.youtube_downloader.is_youtube_url(input_path):
                     if self.logger:
-                        self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-                    print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Failed to load audio file {input_path}: {e}")
-                    self.status_updated.emit(f"Error: Failed to load audio file {os.path.basename(input_path)} - {str(e)}")
-                    continue  # Skip this file and continue with next
-            
-                # Detect BPM for this file
-                bpm = None
-                if self.detect_bpm:
-                    try:
-                        self.status_updated.emit(f"Detecting BPM for {os.path.basename(input_path)}...")
-                        progress = 10 + (file_index * 20 // total_files)
-                        self.progress_updated.emit(progress)
-                        if self.logger:
-                            self.logger.info(f"Detecting BPM for {os.path.basename(input_path)}...")
-                        bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
-                        if self.logger:
-                            self.logger.info(f"Detected BPM for {os.path.basename(input_path)}: {bpm}")
-                        print(f"Detected BPM: {bpm}")
-                    except Exception as e:
-                        if self.logger:
-                            self.logger.warning(f"BPM detection failed for {os.path.basename(input_path)}: {e}")
-                        self.status_updated.emit(f"Warning: BPM detection failed for {os.path.basename(input_path)}, continuing without BPM...")
-                        bpm = None
-                # Process stems for this file
-                if self.split_stems:
-                    self.status_updated.emit(f"Separating stems for {os.path.basename(input_path)}...")
-                    progress = 30 + (file_index * 40 // total_files)
-                    self.progress_updated.emit(progress)
-                    if self.logger:
-                        self.logger.info(f"Starting stem separation for {os.path.basename(input_path)}...")
+                        self.logger.info(f"Processing YouTube URL {file_index + 1}/{total_files}: {input_path}")
+                    self.status_updated.emit(f"Processing YouTube URL {file_index + 1}/{total_files}: {input_path}")
                     
-                    # Create temporary directory for this file's stems
-                    temp_dir = os.path.join(drumkit_path, f"temp_stems_{file_index}")
-                    os.makedirs(temp_dir, exist_ok=True)
-                    
+                    # Download YouTube audio
                     try:
-                        stem_paths = self.demucs_processor.separate_stems(input_path, temp_dir)
-                        if self.logger:
-                            self.logger.info(f"Created stems for {os.path.basename(input_path)}: {list(stem_paths.keys())}")
-                        print(f"Created stems: {list(stem_paths.keys())}")
+                        downloaded_files = self.youtube_downloader.download_youtube_audio(input_path, drumkit_path)
+                        if not downloaded_files:
+                            if self.logger:
+                                self.logger.error(f"Failed to download YouTube content: {input_path}")
+                            self.status_updated.emit(f"Error: Failed to download YouTube content: {input_path}")
+                            continue
                         
-                        stem_count = len(stem_paths)
-                        for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
+                        # Process each downloaded file
+                        for downloaded_file in downloaded_files:
                             if self.stop_flag:
                                 break
-                            progress = 30 + (file_index * 40 // total_files) + (i * 30 // stem_count)
-                            self.status_updated.emit(f"Processing {stem_name} stem from {os.path.basename(input_path)} ({i+1}/{stem_count})...")
-                            self.progress_updated.emit(progress)
-                            if self.logger:
-                                self.logger.info(f"Processing {stem_name} stem from {os.path.basename(input_path)} ({i+1}/{stem_count})...")
                             
-                            if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
+                            # Use the downloaded file as input_path for processing
+                            file_identifier = os.path.splitext(os.path.basename(downloaded_file))[0]
+                            
+                            # Load audio file with error handling
+                            try:
+                                audio_data, sample_rate = librosa.load(downloaded_file, sr=None, mono=False)
                                 if self.logger:
-                                    self.logger.warning(f"Stem file {stem_path} is empty or missing")
-                                print(f"Warning: Stem file {stem_path} is empty or missing")
+                                    self.logger.info(f"Loaded YouTube audio: {audio_data.shape}, sample rate: {sample_rate}")
+                                print(f"Loaded YouTube audio: {audio_data.shape}, sample rate: {sample_rate}")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.error(f"Failed to load YouTube audio file {downloaded_file}: {e}")
+                                self.status_updated.emit(f"Error: Failed to load YouTube audio file {os.path.basename(downloaded_file)} - {str(e)}")
                                 continue
                             
-                            stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
-                            if self.logger:
-                                self.logger.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
-                            print(f"Loaded {stem_name} stem: {stem_audio.shape}")
-                            
-                            # Use shared directories for all files
-                            stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
-                            os.makedirs(stem_dir, exist_ok=True)
-                            
-                            if stem_name == "vocals":
-                                # Add file identifier to vocals filename
-                                vocals_filename = f"Vocals_{os.path.splitext(os.path.basename(input_path))[0]}_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals_{os.path.splitext(os.path.basename(input_path))[0]}.{self.output_format.upper()}"
-                                vocals_path = os.path.join(stem_dir, vocals_filename)
-                                self.save_audio_sample(stem_audio, stem_sr, vocals_path)
-                                if self.logger:
-                                    self.logger.info(f"Saved vocals as whole file: {vocals_filename}")
-                                print(f"Saved vocals as whole file: {vocals_filename}")
-                            elif stem_name == "drums":
-                                self.status_updated.emit(f"Splitting drums from {os.path.basename(input_path)} into one-shots...")
-                                if self.logger:
-                                    self.logger.info(f"Processing drums from {os.path.basename(input_path)} with subfolder classification...")
-                                self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
-                            else:
-                                self.status_updated.emit(f"Detecting one-shots in {stem_name} from {os.path.basename(input_path)}...")
-                                if self.logger:
-                                    self.logger.info(f"Processing {stem_name} from {os.path.basename(input_path)} into individual samples...")
-                                sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
-                                if self.logger:
-                                    self.logger.info(f"Created {sample_count} samples for {stem_name} from {os.path.basename(input_path)}")
-                                print(f"Created {sample_count} samples for {stem_name}")
-                        
-                        # Clean up temporary files for this file
-                        import shutil
-                        shutil.rmtree(temp_dir)
-                        if self.logger:
-                            self.logger.info(f"Cleaned up temporary stem files for {os.path.basename(input_path)}")
+                            # Process this downloaded file
+                            self.process_single_file(audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files)
                             
                     except Exception as e:
                         if self.logger:
-                            self.logger.error(f"Error in stem separation for {os.path.basename(input_path)}: {e}")
-                        print(f"Error in stem separation: {e}")
-                        self.status_updated.emit(f"Stem separation failed for {os.path.basename(input_path)}: {str(e)}")
-                        self.status_updated.emit(f"Falling back to processing whole file for {os.path.basename(input_path)}...")
-                        if self.logger:
-                            self.logger.info(f"Falling back to processing whole file for {os.path.basename(input_path)}...")
-                        sample_count = self.process_stem_into_samples(audio_data, sample_rate, drumkit_path, "Samples", bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
-                        if self.logger:
-                            self.logger.info(f"Created {sample_count} samples from whole file for {os.path.basename(input_path)}")
-                        print(f"Created {sample_count} samples from whole file")
+                            self.logger.error(f"Error processing YouTube URL {input_path}: {e}")
+                        self.status_updated.emit(f"Error processing YouTube URL: {str(e)}")
+                        continue
+                        
                 else:
-                    # Process whole file without stem separation
-                    self.status_updated.emit(f"Processing {os.path.basename(input_path)} into samples...")
-                    progress = 70 + (file_index * 20 // total_files)
-                    self.progress_updated.emit(progress)
+                    # Regular file processing
                     if self.logger:
-                        self.logger.info(f"Processing whole file {os.path.basename(input_path)} into samples...")
-                    samples_dir = os.path.join(drumkit_path, "Samples")
-                    os.makedirs(samples_dir, exist_ok=True)
-                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm, file_identifier=os.path.splitext(os.path.basename(input_path))[0])
-                    if self.logger:
-                        self.logger.info(f"Created {sample_count} samples from whole file for {os.path.basename(input_path)}")
-                    print(f"Created {sample_count} samples from whole file")
+                        self.logger.info(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                    self.status_updated.emit(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                    
+                    # Load audio file with error handling
+                    try:
+                        audio_data, sample_rate = librosa.load(input_path, sr=None, mono=False)
+                        if self.logger:
+                            self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                        print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to load audio file {input_path}: {e}")
+                        self.status_updated.emit(f"Error: Failed to load audio file {os.path.basename(input_path)} - {str(e)}")
+                        continue  # Skip this file and continue with next
+                    
+                    # Process this file
+                    file_identifier = os.path.splitext(os.path.basename(input_path))[0]
+                    self.process_single_file(audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files)
             
             # Create metadata file after processing all files
-            self.create_drumkit_metadata(drumkit_path, bpm)
+            self.create_drumkit_metadata(drumkit_path, None)  # Use None for bpm since it varies per file
             self.progress_updated.emit(100)
             self.status_updated.emit("Drumkit creation completed!")
             if self.logger:
                 self.logger.info("Drumkit creation completed!")
+                
+            # Clean up YouTube downloads
+            if hasattr(self, 'youtube_downloader'):
+                self.youtube_downloader.cleanup()
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Processing error: {e}")
+            self.status_updated.emit(f"Error: {str(e)}")
+            print(f"Processing error: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def process_single_file(self, audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files):
+        """Process a single audio file (either local or downloaded from YouTube)"""
+        try:
+            # Detect BPM for this file
+            bpm = None
+            if self.detect_bpm:
+                try:
+                    self.status_updated.emit(f"Detecting BPM for {file_identifier}...")
+                    progress = 10 + (file_index * 20 // total_files)
+                    self.progress_updated.emit(progress)
+                    if self.logger:
+                        self.logger.info(f"Detecting BPM for {file_identifier}...")
+                    bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
+                    if self.logger:
+                        self.logger.info(f"Detected BPM for {file_identifier}: {bpm}")
+                    print(f"Detected BPM: {bpm}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.warning(f"BPM detection failed for {file_identifier}: {e}")
+                    self.status_updated.emit(f"Warning: BPM detection failed for {file_identifier}, continuing without BPM...")
+                    bpm = None
+            
+            # Process stems for this file
+            if self.split_stems:
+                self.status_updated.emit(f"Separating stems for {file_identifier}...")
+                progress = 30 + (file_index * 40 // total_files)
+                self.progress_updated.emit(progress)
+                if self.logger:
+                    self.logger.info(f"Starting stem separation for {file_identifier}...")
+                
+                # Create temporary directory for this file's stems
+                temp_dir = os.path.join(drumkit_path, f"temp_stems_{file_index}")
+                os.makedirs(temp_dir, exist_ok=True)
+                
+                try:
+                    # For YouTube downloads, we need to save the audio data temporarily
+                    if hasattr(self, 'youtube_downloader') and self.youtube_downloader.temp_dir:
+                        temp_audio_path = os.path.join(temp_dir, f"{file_identifier}.wav")
+                        self.save_audio_sample(audio_data, sample_rate, temp_audio_path)
+                        input_path_for_stems = temp_audio_path
+                    else:
+                        input_path_for_stems = None  # This will be handled by the calling code
+                    
+                    stem_paths = self.demucs_processor.separate_stems(input_path_for_stems or temp_audio_path, temp_dir)
+                    if self.logger:
+                        self.logger.info(f"Created stems for {file_identifier}: {list(stem_paths.keys())}")
+                    print(f"Created stems: {list(stem_paths.keys())}")
+                    
+                    stem_count = len(stem_paths)
+                    for i, (stem_name, stem_path) in enumerate(stem_paths.items()):
+                        if self.stop_flag:
+                            break
+                        progress = 30 + (file_index * 40 // total_files) + (i * 30 // stem_count)
+                        self.status_updated.emit(f"Processing {stem_name} stem from {file_identifier} ({i+1}/{stem_count})...")
+                        self.progress_updated.emit(progress)
+                        if self.logger:
+                            self.logger.info(f"Processing {stem_name} stem from {file_identifier} ({i+1}/{stem_count})...")
+                        
+                        if not os.path.exists(stem_path) or os.path.getsize(stem_path) == 0:
+                            if self.logger:
+                                self.logger.warning(f"Stem file {stem_path} is empty or missing")
+                            print(f"Warning: Stem file {stem_path} is empty or missing")
+                            continue
+                        
+                        stem_audio, stem_sr = librosa.load(stem_path, sr=None, mono=False)
+                        if self.logger:
+                            self.logger.info(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                        print(f"Loaded {stem_name} stem: {stem_audio.shape}")
+                        
+                        # Use shared directories for all files
+                        stem_dir = os.path.join(drumkit_path, stem_name.capitalize())
+                        os.makedirs(stem_dir, exist_ok=True)
+                        
+                        if stem_name == "vocals":
+                            # Add file identifier to vocals filename
+                            vocals_filename = f"Vocals_{file_identifier}_{bpm}BPM.{self.output_format.upper()}" if bpm else f"Vocals_{file_identifier}.{self.output_format.upper()}"
+                            vocals_path = os.path.join(stem_dir, vocals_filename)
+                            self.save_audio_sample(stem_audio, stem_sr, vocals_path)
+                            if self.logger:
+                                self.logger.info(f"Saved vocals as whole file: {vocals_filename}")
+                            print(f"Saved vocals as whole file: {vocals_filename}")
+                        elif stem_name == "drums":
+                            self.status_updated.emit(f"Splitting drums from {file_identifier} into one-shots...")
+                            if self.logger:
+                                self.logger.info(f"Processing drums from {file_identifier} with subfolder classification...")
+                            self.process_drums_with_subfolders(stem_audio, stem_sr, stem_dir, bpm, file_identifier=file_identifier)
+                        else:
+                            self.status_updated.emit(f"Detecting one-shots in {stem_name} from {file_identifier}...")
+                            if self.logger:
+                                self.logger.info(f"Processing {stem_name} from {file_identifier} into individual samples...")
+                            sample_count = self.process_stem_into_samples(stem_audio, stem_sr, stem_dir, stem_name.capitalize(), bpm, file_identifier=file_identifier)
+                            if self.logger:
+                                self.logger.info(f"Created {sample_count} samples for {stem_name} from {file_identifier}")
+                            print(f"Created {sample_count} samples for {stem_name}")
+                    
+                    # Clean up temporary files for this file
+                    import shutil
+                    shutil.rmtree(temp_dir)
+                    if self.logger:
+                        self.logger.info(f"Cleaned up temporary stem files for {file_identifier}")
+                        
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Error in stem separation for {file_identifier}: {e}")
+                    print(f"Error in stem separation: {e}")
+                    self.status_updated.emit(f"Stem separation failed for {file_identifier}: {str(e)}")
+                    self.status_updated.emit(f"Falling back to processing whole file for {file_identifier}...")
+                    if self.logger:
+                        self.logger.info(f"Falling back to processing whole file for {file_identifier}...")
+                    sample_count = self.process_stem_into_samples(audio_data, sample_rate, drumkit_path, "Samples", bpm, file_identifier=file_identifier)
+                    if self.logger:
+                        self.logger.info(f"Created {sample_count} samples from whole file for {file_identifier}")
+                    print(f"Created {sample_count} samples from whole file")
+            else:
+                # Process whole file without stem separation
+                self.status_updated.emit(f"Processing {file_identifier} into samples...")
+                progress = 70 + (file_index * 20 // total_files)
+                self.progress_updated.emit(progress)
+                if self.logger:
+                    self.logger.info(f"Processing whole file {file_identifier} into samples...")
+                samples_dir = os.path.join(drumkit_path, "Samples")
+                os.makedirs(samples_dir, exist_ok=True)
+                sample_count = self.process_stem_into_samples(audio_data, sample_rate, samples_dir, "Sample", bpm, file_identifier=file_identifier)
+                if self.logger:
+                    self.logger.info(f"Created {sample_count} samples from whole file for {file_identifier}")
+                print(f"Created {sample_count} samples from whole file")
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error processing file {file_identifier}: {e}")
+            self.status_updated.emit(f"Error processing file {file_identifier}: {str(e)}")
+            raise
+    
+    def run(self):
+        """Main processing function with improved progress updates."""
+        try:
+            if self.logger:
+                self.logger.info(f"Starting audio processing for {len(self.input_files)} files...")
+            self.status_updated.emit(f"Processing {len(self.input_files)} files...")
+            self.progress_updated.emit(5)
+            
+            # Create drumkit directory
+            try:
+                drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
+                os.makedirs(drumkit_path, exist_ok=True)
+                self.drumkit_path = drumkit_path  # Store for cleanup
+                if self.logger:
+                    self.logger.info(f"Created drumkit directory: {drumkit_path}")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Failed to create drumkit directory: {e}")
+                self.status_updated.emit(f"Error: Failed to create output directory - {str(e)}")
+                return
+            
+            # Process each input file or YouTube URL
+            total_files = len(self.input_files)
+            for file_index, input_path in enumerate(self.input_files):
+                # Reset similarity checker for each file so only compare within the same file
+                self.similarity_checker = SampleSimilarityChecker(self.similarity_checker.similarity_threshold)
+                if self.stop_flag:
+                    break
+                
+                # Check if this is a YouTube URL
+                if self.youtube_downloader.is_youtube_url(input_path):
+                    if self.logger:
+                        self.logger.info(f"Processing YouTube URL {file_index + 1}/{total_files}: {input_path}")
+                    self.status_updated.emit(f"Processing YouTube URL {file_index + 1}/{total_files}: {input_path}")
+                    
+                    # Download YouTube audio
+                    try:
+                        downloaded_files = self.youtube_downloader.download_youtube_audio(input_path, drumkit_path)
+                        if not downloaded_files:
+                            if self.logger:
+                                self.logger.error(f"Failed to download YouTube content: {input_path}")
+                            self.status_updated.emit(f"Error: Failed to download YouTube content: {input_path}")
+                            continue
+                        
+                        # Process each downloaded file
+                        for downloaded_file in downloaded_files:
+                            if self.stop_flag:
+                                break
+                            
+                            # Use the downloaded file as input_path for processing
+                            file_identifier = os.path.splitext(os.path.basename(downloaded_file))[0]
+                            
+                            # Load audio file with error handling
+                            try:
+                                audio_data, sample_rate = librosa.load(downloaded_file, sr=None, mono=False)
+                                if self.logger:
+                                    self.logger.info(f"Loaded YouTube audio: {audio_data.shape}, sample rate: {sample_rate}")
+                                print(f"Loaded YouTube audio: {audio_data.shape}, sample rate: {sample_rate}")
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.error(f"Failed to load YouTube audio file {downloaded_file}: {e}")
+                                self.status_updated.emit(f"Error: Failed to load YouTube audio file {os.path.basename(downloaded_file)} - {str(e)}")
+                                continue
+                            
+                            # Process this downloaded file
+                            self.process_single_file(audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files)
+                            
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Error processing YouTube URL {input_path}: {e}")
+                        self.status_updated.emit(f"Error processing YouTube URL: {str(e)}")
+                        continue
+                        
+                else:
+                    # Regular file processing
+                    if self.logger:
+                        self.logger.info(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                    self.status_updated.emit(f"Processing file {file_index + 1}/{total_files}: {os.path.basename(input_path)}")
+                    
+                    # Load audio file with error handling
+                    try:
+                        audio_data, sample_rate = librosa.load(input_path, sr=None, mono=False)
+                        if self.logger:
+                            self.logger.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                        print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to load audio file {input_path}: {e}")
+                        self.status_updated.emit(f"Error: Failed to load audio file {os.path.basename(input_path)} - {str(e)}")
+                        continue  # Skip this file and continue with next
+                    
+                    # Process this file
+                    file_identifier = os.path.splitext(os.path.basename(input_path))[0]
+                    self.process_single_file(audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files)
+            
+            # Create metadata file after processing all files
+            self.create_drumkit_metadata(drumkit_path, None)  # Use None for bpm since it varies per file
+            self.progress_updated.emit(100)
+            self.status_updated.emit("Drumkit creation completed!")
+            if self.logger:
+                self.logger.info("Drumkit creation completed!")
+                
+            # Clean up YouTube downloads
+            if hasattr(self, 'youtube_downloader'):
+                self.youtube_downloader.cleanup()
+                
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Processing error: {e}")
