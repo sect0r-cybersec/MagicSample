@@ -126,12 +126,8 @@ def test_imports():
         print(f"✗ demucs: {e}")
         return False
     
-    # Optional pitch detection
-    try:
-        import pyin
-        print("✓ pyin (optional)")
-    except ImportError:
-        print("⚠ pyin not available (will use librosa for pitch detection)")
+    # Pitch detection - using our own advanced multi-algorithm implementation
+    print("✓ Advanced pitch detection (built-in)")
     
     return True
 

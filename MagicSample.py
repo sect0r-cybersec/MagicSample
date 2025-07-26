@@ -46,11 +46,7 @@ from demucs.pretrained import get_model
 from demucs.apply import apply_model
 from demucs.audio import AudioFile, save_audio
 
-# Pitch detection
-try:
-    import pyin
-except ImportError:
-    print("Warning: pyin not available, using librosa for pitch detection")
+# Pitch detection - using our own advanced multi-algorithm implementation
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
