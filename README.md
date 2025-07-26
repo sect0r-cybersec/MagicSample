@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.2-blue)
+![Version](https://img.shields.io/badge/version-0.0.5-blue)
 
 ---
 
@@ -12,11 +12,16 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 
 - **Advanced Stem Separation**: Uses Demucs for high-quality separation of drums, bass, vocals, and other instruments
 - **BPM Detection**: Automatically detects and labels samples with BPM information
-- **Pitch Detection**: Estimates and labels samples with musical pitch information
-- **Drum Classification**: Automatically classifies drum samples into categories (hi-hat, snare, kick, tom, etc.)
+- **Advanced Pitch Detection**: Multi-algorithm pitch detection with Scientific Pitch Notation (SPN)
+- **Drum Classification**: Automatically classifies drum samples into categories (Kick, HiHat, Perc)
+- **Sample Similarity Detection**: Prevents duplicate samples with configurable similarity threshold
 - **Organized Output**: Creates a structured drumkit folder with subfolders for each instrument type
 - **Multiple Output Formats**: Supports WAV, FLAC, and OGG formats
-- **User-Friendly GUI**: Modern PyQt6 interface with progress tracking
+- **User-Friendly GUI**: Modern PyQt6 interface with progress tracking and real-time logging
+- **Comprehensive Error Handling**: Graceful error recovery with detailed logging
+- **Safe Stop & Cleanup**: Preserves processed samples when stopping mid-process
+- **Skip Functionality**: Skip individual samples during processing
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
 
 ## Installation
 
@@ -99,10 +104,17 @@ MagicSample/
    - **Detect BPM**: Automatically detect and label BPM
    - **Detect pitch**: Estimate and label musical pitch
    - **Classify drums**: Automatically categorize drum samples
-   - **Sensitivity**: Adjust sample detection sensitivity (5-30 dB)
+   - **Sample Detection Sensitivity**: Adjust sample detection sensitivity (5-30)
+   - **Sample Similarity Threshold**: Control duplicate detection (0-100%)
+   - **Sample Timeout**: Maximum processing time per sample (milliseconds)
    - **Output Format**: Choose WAV, FLAC, or OGG
    - **Drumkit Name**: Name for your drumkit folder
-5. **Start Processing**: Click "Start Processing" and wait for completion
+5. **Start Processing**: Click "Start Processing" and monitor progress
+6. **Use Controls**: 
+   - **Skip Sample**: Skip current sample and continue processing
+   - **Stop**: Safely stop processing and save completed samples
+   - **Log Tab**: Monitor real-time processing information
+   - **Help Tab**: Access comprehensive documentation
 
 ## Output Structure
 
@@ -111,28 +123,28 @@ The tool creates a drumkit folder with the following structure:
 ```
 MyDrumkit/
 ├── metadata.json          # Processing information and settings
-├── DRUMS/                 # Drum samples (split into subfolders)
-│   ├── KICKS/            # Kick drum samples (low frequency: 40-250 Hz)
-│   ├── SNARES/           # Snare drum samples (broad range: 120 Hz-10 kHz)
-│   ├── CLAPS/            # Clap samples (mid-high frequency: 800 Hz-10 kHz)
-│   └── HI_HATS/          # Hi-hat samples (high frequency: 5-10 kHz)
-├── BASS/                  # Bass samples (individual samples)
-├── VOCALS/                # Vocal stem (whole acapella file)
-└── OTHER/                 # Other instrument samples (individual samples)
+├── Drums/                 # Drum samples (split into subfolders)
+│   ├── Kick/             # Kick drum samples (low frequency: <200 Hz)
+│   ├── HiHat/            # Hi-hat samples (high frequency: >2000 Hz)
+│   └── Perc/             # Percussion samples (mid frequency: 200-2000 Hz)
+├── Bass/                  # Bass samples (individual samples)
+├── Vocals/                # Vocal stem (whole acapella file)
+└── Other/                 # Other instrument samples (individual samples)
 ```
 
 ## Sample Naming Convention
 
 Samples are automatically named with the following format:
-- `{INSTRUMENT}_{number}_{BPM}BPM_{pitch}.{FORMAT}`
+- `{Type}_{number}_{BPM}BPM_{Pitch}.{Format}`
 
 Examples:
-- `KICK_001_120BPM_C4.WAV`
-- `HIHAT_002_120BPM_N/A.WAV`
-- `SNARE_003_120BPM_A2.WAV`
-- `CLAP_001_120BPM_N/A.WAV`
-- `BASS_001_120BPM_A2.WAV`
-- `VOCALS_120BPM.WAV` (whole acapella file)
+- `Kick_001_120BPM_C2.WAV`
+- `HiHat_002_120BPM_G#4.WAV`
+- `Bass_001_120BPM_F1.WAV`
+- `Vocals_120BPM.WAV` (whole acapella file)
+- `Other_001_120BPM_A3.WAV`
+
+**Note**: Pitch information uses Scientific Pitch Notation (SPN) and is only included when pitch detection is enabled and successful.
 
 ## Installation Issues?
 
@@ -176,7 +188,28 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## Changelog
 
-### Version 2.0 (Demucs)
+### Version 0.0.5 (Latest)
+- **Comprehensive Exception Handling**: Added extensive error handling throughout the application
+- **Safe Stop & Cleanup**: Implemented proper cleanup when stopping processing mid-way
+- **Skip Sample Button**: Added ability to skip individual samples during processing
+- **Real-time Logging**: Enhanced logging system with dedicated Log tab
+- **Help Documentation**: Added comprehensive Help tab with detailed parameter explanations
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **Sample Similarity Detection**: Prevents duplicate samples with configurable threshold
+- **Advanced Pitch Detection**: Multi-algorithm pitch detection with Scientific Pitch Notation
+- **Improved UI**: Better button management and user feedback
+
+### Version 0.0.4
+- Fixed Demucs model loading issues
+- Improved stem separation reliability
+- Enhanced error reporting and logging
+
+### Version 0.0.3
+- Added sample similarity comparison within categories
+- Implemented custom multi-algorithm pitch detection
+- Added sample timeout functionality
+
+### Version 0.0.2 (Demucs)
 - Replaced Spleeter with Demucs for better separation quality
 - Added drum classification system
 - Enhanced pitch detection
