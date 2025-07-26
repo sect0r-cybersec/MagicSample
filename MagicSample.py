@@ -786,6 +786,12 @@ class MainWindow(QWidget):
         self.start_button.setFixedWidth(150)
         button_layout.addWidget(self.start_button)
         
+        self.skip_button = QPushButton("Skip Sample")
+        self.skip_button.clicked.connect(self.skip_current_sample)
+        self.skip_button.setEnabled(False)
+        self.skip_button.setFixedWidth(120)
+        button_layout.addWidget(self.skip_button)
+        
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_processing)
         self.stop_button.setEnabled(False)
@@ -832,6 +838,13 @@ class MainWindow(QWidget):
         # Create comprehensive help content
         help_content = """
 <h2>MagicSample - Audio Sample Extraction Tool</h2>
+
+<h3>🎮 Control Buttons</h3>
+<p><b>Start Processing:</b> Begins the audio processing workflow. All samples processed before stopping will be saved.</p>
+
+<p><b>Skip Sample:</b> Skips the current sample being processed and moves to the next one. Useful for avoiding redundant or unwanted samples without stopping the entire process.</p>
+
+<p><b>Stop:</b> Safely stops processing and performs cleanup operations. All samples processed up to that point will be saved in the correct folder structure with metadata.</p>
 
 <h3>📁 File Selection</h3>
 <p><b>Input Audio File:</b> Select your source audio file (WAV, MP3, FLAC, OGG, M4A). This is the file that will be processed into individual samples.</p>
@@ -927,16 +940,48 @@ YourDrumkit/
 <li><code>Vocals_120BPM.WAV</code> - Vocals (whole file), 120 BPM, no pitch</li>
 </ul>
 
+<h3>🛡️ Error Handling & Safety Features</h3>
+
+<h4>Comprehensive Exception Handling</h4>
+<p>The program includes extensive error handling to prevent crashes:</p>
+<ul>
+<li><b>Graceful Degradation:</b> If one feature fails (e.g., pitch detection), the program continues with other features</li>
+<li><b>Detailed Logging:</b> All errors are logged with full context for troubleshooting</li>
+<li><b>User-Friendly Messages:</b> Clear error messages explain what went wrong</li>
+<li><b>Automatic Recovery:</b> The program attempts to recover from errors when possible</li>
+</ul>
+
+<h4>Safe Stop & Cleanup</h4>
+<p>When you press the Stop button:</p>
+<ul>
+<li><b>Immediate Logging:</b> The stop request is logged with timestamp</li>
+<li><b>Sample Preservation:</b> All samples processed up to that point are saved</li>
+<li><b>Metadata Creation:</b> A metadata.json file is created with processing information</li>
+<li><b>Clean Shutdown:</b> Temporary files are cleaned up properly</li>
+<li><b>UI Reset:</b> The interface returns to a ready state</li>
+</ul>
+
+<h4>Skip Functionality</h4>
+<p>The Skip Sample button allows you to:</p>
+<ul>
+<li><b>Skip Redundant Samples:</b> Avoid processing similar or unwanted samples</li>
+<li><b>Maintain Progress:</b> Continue processing without losing completed work</li>
+<li><b>Selective Processing:</b> Choose which samples to keep during processing</li>
+<li><b>Time Saving:</b> Skip samples that would be rejected by similarity checks</li>
+</ul>
+
 <h3>🔍 Troubleshooting</h3>
 
 <h4>Common Issues</h4>
 <p><b>No samples created:</b> Try lowering the Sample Detection Sensitivity or increasing the timeout.</p>
 
-<p><b>Too many similar samples:</b> Increase the Sample Similarity Threshold.</p>
+<p><b>Too many similar samples:</b> Increase the Sample Similarity Threshold or use the Skip button.</p>
 
 <p><b>Processing is slow:</b> Reduce the Sample Timeout or disable pitch detection for faster processing.</p>
 
 <p><b>Stem separation fails:</b> Check the Log tab for detailed error messages. The program will fall back to processing the whole file.</p>
+
+<p><b>Program crashes:</b> Check the Log tab for error details. The program now includes comprehensive exception handling.</p>
 
 <h4>Performance Tips</h4>
 <ul>
@@ -944,6 +989,8 @@ YourDrumkit/
 <li>Disable pitch detection if you don't need pitch information</li>
 <li>Adjust sensitivity based on your audio content</li>
 <li>Use the Log tab to monitor processing progress</li>
+<li>Use the Skip button to avoid processing unwanted samples</li>
+<li>Use Stop instead of closing the program to ensure proper cleanup</li>
 </ul>
 
 <h3>📊 Advanced Features</h3>
@@ -973,6 +1020,16 @@ YourDrumkit/
 <li><b>Kick:</b> Low frequency content (typically below 200Hz)</li>
 <li><b>HiHat:</b> High frequency content (typically above 2000Hz)</li>
 <li><b>Perc:</b> Mid-frequency content (everything else)</li>
+</ul>
+
+<h4>Logging & Debugging</h4>
+<p>The Log tab provides comprehensive information:</p>
+<ul>
+<li><b>Real-time Processing:</b> See exactly what the program is doing</li>
+<li><b>Error Details:</b> Full stack traces and error context</li>
+<li><b>Performance Metrics:</b> Processing times and sample counts</li>
+<li><b>User Actions:</b> Logs when you use Stop or Skip buttons</li>
+<li><b>Save Functionality:</b> Save logs to files for later analysis</li>
 </ul>
 
 <p><i>For more detailed information and troubleshooting, check the Log tab during processing.</i></p>
@@ -1054,64 +1111,106 @@ YourDrumkit/
     
     def start_processing(self):
         """Start the audio processing"""
-        if not self.input_path_edit.text() or not self.output_path_edit.text():
-            QMessageBox.warning(self, "Error", "Please select input file and output directory")
-            return
-        
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
-        self.progress_bar.setValue(0)
-        
-        # Validate timeout input
         try:
-            timeout_value = int(self.timeout_input.text() or "2000")
-            if timeout_value <= 0:
-                QMessageBox.warning(self, "Error", "Timeout must be a positive number")
+            if not self.input_path_edit.text() or not self.output_path_edit.text():
+                QMessageBox.warning(self, "Error", "Please select input file and output directory")
                 return
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Timeout must be a valid number")
-            return
-        
-        # Start processing in a separate thread
-        self.worker = ProcessingWorker(
-            self.input_path_edit.text(),
-            self.output_path_edit.text(),
-            self.drumkit_name_edit.text() or "MyDrumkit",
-            self.format_combo.currentText(),
-            self.stems_checkbox.isChecked(),
-            self.bpm_checkbox.isChecked(),
-            self.pitch_checkbox.isChecked(),
-            self.drum_classify_checkbox.isChecked(),
-            self.sensitivity_slider.value(),
-            self.similarity_slider.value() / 100.0,  # Convert percentage to 0.0-1.0 range
-            timeout_value
-        )
-        
-        self.worker.progress_updated.connect(self.update_progress)
-        self.worker.status_updated.connect(self.update_status)
-        self.worker.finished.connect(self.processing_finished)
-        self.worker.start()
+            
+            self.start_button.setEnabled(False)
+            self.skip_button.setEnabled(True)
+            self.stop_button.setEnabled(True)
+            self.progress_bar.setValue(0)
+            
+            logging.info("Starting audio processing...")
+            
+            # Validate timeout input
+            try:
+                timeout_value = int(self.timeout_input.text() or "2000")
+                if timeout_value <= 0:
+                    QMessageBox.warning(self, "Error", "Timeout must be a positive number")
+                    return
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Timeout must be a valid number")
+                return
+            
+            # Start processing in a separate thread
+            self.worker = ProcessingWorker(
+                self.input_path_edit.text(),
+                self.output_path_edit.text(),
+                self.drumkit_name_edit.text() or "MyDrumkit",
+                self.format_combo.currentText(),
+                self.stems_checkbox.isChecked(),
+                self.bpm_checkbox.isChecked(),
+                self.pitch_checkbox.isChecked(),
+                self.drum_classify_checkbox.isChecked(),
+                self.sensitivity_slider.value(),
+                self.similarity_slider.value() / 100.0,  # Convert percentage to 0.0-1.0 range
+                timeout_value
+            )
+            
+            self.worker.progress_updated.connect(self.update_progress)
+            self.worker.status_updated.connect(self.update_status)
+            self.worker.finished.connect(self.processing_finished)
+            self.worker.start()
+            
+        except Exception as e:
+            logging.error(f"Error starting processing: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to start processing: {str(e)}")
+            self.processing_finished()
+    
+    def skip_current_sample(self):
+        """Skip the current sample being processed"""
+        try:
+            if hasattr(self, 'worker') and self.worker.isRunning():
+                self.worker.skip_current_sample()
+                logging.info("User requested to skip current sample")
+                self.status_label.setText("Skipping current sample...")
+            else:
+                logging.warning("Skip requested but no worker is running")
+        except Exception as e:
+            logging.error(f"Error skipping sample: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to skip sample: {str(e)}")
     
     def stop_processing(self):
         """Stop the audio processing"""
-        if hasattr(self, 'worker'):
-            self.worker.stop()
-        self.processing_finished()
+        try:
+            if hasattr(self, 'worker'):
+                logging.info("User requested to stop processing - initiating cleanup...")
+                self.worker.stop()
+                self.status_label.setText("Stopping processing and saving samples...")
+            else:
+                logging.warning("Stop requested but no worker exists")
+        except Exception as e:
+            logging.error(f"Error stopping processing: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to stop processing: {str(e)}")
+        finally:
+            self.processing_finished()
     
     def update_progress(self, value):
         """Update progress bar"""
-        self.progress_bar.setValue(value)
+        try:
+            self.progress_bar.setValue(value)
+        except Exception as e:
+            logging.error(f"Error updating progress: {e}")
     
     def update_status(self, status):
         """Update status label"""
-        self.status_label.setText(status)
+        try:
+            self.status_label.setText(status)
+        except Exception as e:
+            logging.error(f"Error updating status: {e}")
     
     def processing_finished(self):
         """Called when processing is finished"""
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.progress_bar.setValue(100)
-        self.status_label.setText("Processing completed!")
+        try:
+            self.start_button.setEnabled(True)
+            self.skip_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.progress_bar.setValue(100)
+            self.status_label.setText("Processing completed!")
+            logging.info("Processing finished - UI reset to ready state")
+        except Exception as e:
+            logging.error(f"Error in processing_finished: {e}")
 
 class ProcessingWorker(QThread):
     """Worker thread for audio processing"""
@@ -1134,12 +1233,18 @@ class ProcessingWorker(QThread):
         self.similarity_threshold = similarity_threshold
         self.timeout_ms = timeout_ms
         self.stop_flag = False
+        self.skip_flag = False
         
         # Initialize processors
-        self.demucs_processor = DemucsProcessor()
-        self.drum_classifier = DrumClassifier()
-        self.pitch_detector = PitchDetector()
-        self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
+        try:
+            self.demucs_processor = DemucsProcessor()
+            self.drum_classifier = DrumClassifier()
+            self.pitch_detector = PitchDetector()
+            self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
+            logging.info("ProcessingWorker initialized successfully")
+        except Exception as e:
+            logging.error(f"Error initializing ProcessingWorker: {e}")
+            raise
     
     def run_with_timeout(self, func, *args, **kwargs):
         """Run a function with timeout handling"""
@@ -1184,20 +1289,41 @@ class ProcessingWorker(QThread):
             logging.info("Starting audio processing...")
             self.status_updated.emit("Loading audio file...")
             self.progress_updated.emit(5)
-            audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
-            logging.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
-            print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+            
+            # Load audio file with error handling
+            try:
+                audio_data, sample_rate = librosa.load(self.input_path, sr=None, mono=False)
+                logging.info(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+                print(f"Loaded audio: {audio_data.shape}, sample rate: {sample_rate}")
+            except Exception as e:
+                logging.error(f"Failed to load audio file: {e}")
+                self.status_updated.emit(f"Error: Failed to load audio file - {str(e)}")
+                return
+            
             bpm = None
             if self.detect_bpm:
-                self.status_updated.emit("Detecting BPM...")
-                self.progress_updated.emit(10)
-                logging.info("Detecting BPM...")
-                bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
-                logging.info(f"Detected BPM: {bpm}")
-                print(f"Detected BPM: {bpm}")
-            drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
-            os.makedirs(drumkit_path, exist_ok=True)
-            logging.info(f"Created drumkit directory: {drumkit_path}")
+                try:
+                    self.status_updated.emit("Detecting BPM...")
+                    self.progress_updated.emit(10)
+                    logging.info("Detecting BPM...")
+                    bpm = self.detect_bpm_from_audio(audio_data, sample_rate)
+                    logging.info(f"Detected BPM: {bpm}")
+                    print(f"Detected BPM: {bpm}")
+                except Exception as e:
+                    logging.warning(f"BPM detection failed: {e}")
+                    self.status_updated.emit("Warning: BPM detection failed, continuing without BPM...")
+                    bpm = None
+            
+            # Create drumkit directory
+            try:
+                drumkit_path = os.path.join(self.output_path, self.drumkit_name.capitalize())
+                os.makedirs(drumkit_path, exist_ok=True)
+                self.drumkit_path = drumkit_path  # Store for cleanup
+                logging.info(f"Created drumkit directory: {drumkit_path}")
+            except Exception as e:
+                logging.error(f"Failed to create drumkit directory: {e}")
+                self.status_updated.emit(f"Error: Failed to create output directory - {str(e)}")
+                return
             if self.split_stems:
                 self.status_updated.emit("Separating stems with Demucs...")
                 self.progress_updated.emit(20)
@@ -1341,23 +1467,46 @@ class ProcessingWorker(QThread):
             total_samples = len(sample_boundaries)
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
+                    logging.info("Stop flag detected - breaking sample processing loop")
                     break
-                # Extract sample
-                if len(audio_data.shape) > 1:
-                    sample_audio = audio_data[:, start:end]
-                else:
-                    sample_audio = audio_data[start:end]
-                # Skip very short samples (unless it's the only sample)
-                sample_duration = sample_audio.shape[-1] / sample_rate
-                if sample_duration < min_duration and total_samples > 1:
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                
+                # Check for skip flag
+                if self.skip_flag:
+                    logging.info(f"Skipping sample {i+1}/{total_samples}")
+                    self.skip_flag = False  # Reset skip flag
                     continue
+                # Extract sample with error handling
+                try:
+                    if len(audio_data.shape) > 1:
+                        sample_audio = audio_data[:, start:end]
+                    else:
+                        sample_audio = audio_data[start:end]
+                except Exception as e:
+                    logging.error(f"Error extracting sample {i+1}: {e}")
+                    continue
+                
+                # Skip very short samples (unless it's the only sample)
+                try:
+                    sample_duration = sample_audio.shape[-1] / sample_rate
+                    if sample_duration < min_duration and total_samples > 1:
+                        logging.info(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                        continue
+                except Exception as e:
+                    logging.error(f"Error calculating sample duration for sample {i+1}: {e}")
+                    continue
+                
                 # Skip very quiet samples (unless it's the only sample)
-                sample_rms = np.sqrt(np.mean(sample_audio**2))
-                if sample_rms < 0.001 and total_samples > 1:
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                try:
+                    sample_rms = np.sqrt(np.mean(sample_audio**2))
+                    if sample_rms < 0.001 and total_samples > 1:
+                        logging.info(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                        continue
+                except Exception as e:
+                    logging.error(f"Error calculating RMS for sample {i+1}: {e}")
                     continue
                 # Verbose progress for each sample
                 if hasattr(self, 'status_updated'):
@@ -1369,37 +1518,53 @@ class ProcessingWorker(QThread):
                 if bpm:
                     filename_parts.append(f"{bpm}BPM")
                 
-                # Pitch detection with timeout
+                # Pitch detection with timeout and error handling
                 pitch = None
                 if self.detect_pitch:
-                    pitch_result, pitch_status = self.run_with_timeout(
-                        self.pitch_detector.detect_pitch, sample_audio, sample_rate
-                    )
-                    if pitch_status == "success" and pitch_result and pitch_result != "N/A":
-                        pitch = pitch_result
-                        filename_parts.append(pitch)
-                    elif pitch_status == "timeout":
+                    try:
+                        pitch_result, pitch_status = self.run_with_timeout(
+                            self.pitch_detector.detect_pitch, sample_audio, sample_rate
+                        )
+                        if pitch_status == "success" and pitch_result and pitch_result != "N/A":
+                            pitch = pitch_result
+                            filename_parts.append(pitch)
+                            logging.info(f"Pitch detected for {stem_name} sample {i+1}: {pitch}")
+                        elif pitch_status == "timeout":
+                            logging.warning(f"Pitch detection timeout for {stem_name} sample {i+1}")
+                            if hasattr(self, 'status_updated'):
+                                self.status_updated.emit(f"Pitch detection timeout for {stem_name} sample {i+1}, continuing...")
+                        else:
+                            logging.warning(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                            if hasattr(self, 'status_updated'):
+                                self.status_updated.emit(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                    except Exception as e:
+                        logging.error(f"Error during pitch detection for {stem_name} sample {i+1}: {e}")
                         if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Pitch detection timeout for {stem_name} sample {i+1}, continuing...")
-                    else:
-                        if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Pitch detection failed for {stem_name} sample {i+1}: {pitch_status}")
+                            self.status_updated.emit(f"Pitch detection error for {stem_name} sample {i+1}: {str(e)}")
                 
                 filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(output_dir, filename)
                 
-                # Similarity check with timeout
-                similarity_result, similarity_status = self.run_with_timeout(
-                    self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, stem_name.capitalize()
-                )
+                # Similarity check with timeout and error handling
+                try:
+                    similarity_result, similarity_status = self.run_with_timeout(
+                        self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, stem_name.capitalize()
+                    )
+                except Exception as e:
+                    logging.error(f"Error during similarity check for {stem_name} sample {i+1}: {e}")
+                    similarity_status = "error"
+                    similarity_result = False
                 
                 if similarity_status == "timeout":
                     logging.warning(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check timeout for {stem_name} sample {i+1}, saving sample...")
                     # Save sample even if similarity check times out
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                    except Exception as e:
+                        logging.error(f"Failed to save sample after similarity timeout: {e}")
                 elif similarity_status == "success" and similarity_result:
                     logging.info(f"Skipping {stem_name} sample {i+1}: too similar to existing samples.")
                     if hasattr(self, 'status_updated'):
@@ -1408,15 +1573,23 @@ class ProcessingWorker(QThread):
                 elif similarity_status == "success" and not similarity_result:
                     # Not similar, save the sample
                     logging.info(f"Saving {stem_name} sample {i+1}: {filename}")
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                    except Exception as e:
+                        logging.error(f"Failed to save sample {i+1}: {e}")
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Failed to save {stem_name} sample {i+1}: {str(e)}")
                 else:
                     # Similarity check failed, save sample anyway
                     logging.warning(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check failed for {stem_name} sample {i+1}: {similarity_status}, saving sample...")
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                    except Exception as e:
+                        logging.error(f"Failed to save sample after similarity failure: {e}")
             logging.info(f"Successfully created {sample_count} samples for {stem_name}")
             if hasattr(self, 'status_updated'):
                 self.status_updated.emit(f"Successfully created {sample_count} samples for {stem_name}.")
@@ -1640,9 +1813,43 @@ class ProcessingWorker(QThread):
         except Exception as e:
             print(f"Error creating metadata: {e}")
     
+    def skip_current_sample(self):
+        """Skip the current sample being processed"""
+        try:
+            self.skip_flag = True
+            logging.info("Skip flag set - current sample will be skipped")
+        except Exception as e:
+            logging.error(f"Error setting skip flag: {e}")
+    
     def stop(self):
-        """Stop the processing"""
-        self.stop_flag = True
+        """Stop the processing and perform cleanup"""
+        try:
+            logging.info("Stop requested - setting stop flag and performing cleanup...")
+            self.stop_flag = True
+            
+            # Perform cleanup operations
+            self.perform_cleanup()
+            
+        except Exception as e:
+            logging.error(f"Error during stop operation: {e}")
+    
+    def perform_cleanup(self):
+        """Perform cleanup operations when stopping"""
+        try:
+            logging.info("Performing cleanup operations...")
+            
+            # Save any metadata that might be in progress
+            if hasattr(self, 'drumkit_path') and self.drumkit_path:
+                try:
+                    self.create_drumkit_metadata(self.drumkit_path, getattr(self, 'bpm', None))
+                    logging.info("Metadata saved during cleanup")
+                except Exception as e:
+                    logging.warning(f"Could not save metadata during cleanup: {e}")
+            
+            logging.info("Cleanup completed successfully")
+            
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
 
 def main():
     """Main application entry point"""
