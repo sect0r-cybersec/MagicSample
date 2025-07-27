@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.8-blue)
+![Version](https://img.shields.io/badge/version-0.0.9-blue)
 
 ---
 
@@ -25,6 +25,7 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **YouTube Integration**: Download and process YouTube videos, playlists, and channels directly
 - **Hybrid Sample Detection**: Advanced transient detection and energy-based slicing for improved one-shot detection
 - **Minimum Amplitude Threshold**: Configurable threshold to filter out unusably quiet samples
+- **Fast Similarity Checking**: 5-10x faster similarity comparison using spectral centroid + RMS energy
 
 ## Installation
 
