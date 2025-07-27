@@ -11,8 +11,10 @@ This version uses Demucs for stem separation and includes:
 - Organized drumkit folder structure
 - Similarity comparison to avoid duplicate samples
 - Sample processing timeout protection
+- Hybrid transient detection and energy-based slicing
+- Minimum amplitude threshold filtering
 """
-__version__ = '0.0.7'
+__version__ = '0.0.8'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -53,6 +55,10 @@ from demucs.audio import AudioFile, save_audio
 import yt_dlp
 import tempfile
 import re
+
+# Advanced audio analysis imports
+from scipy.signal import find_peaks, peak_prominences
+from scipy.ndimage import gaussian_filter1d
 
 # Pitch detection - using our own advanced multi-algorithm implementation
 
@@ -1023,23 +1029,36 @@ class MainWindow(QWidget):
         self.timeout_input.setFixedWidth(100)
         options_layout.addWidget(self.timeout_input, 6, 1)
         
+        # Minimum amplitude threshold input
+        amplitude_label = QLabel("Min Amplitude (dBFS):")
+        amplitude_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        options_layout.addWidget(amplitude_label, 7, 0)
+        
+        self.amplitude_input = QLineEdit()
+        self.amplitude_input.setPlaceholderText("-20")
+        self.amplitude_input.setText("-20")  # Default -20 dBFS
+        self.amplitude_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.amplitude_input.setFixedWidth(100)
+        self.amplitude_input.setToolTip("Minimum amplitude threshold in dBFS. Samples below this level will be skipped.")
+        options_layout.addWidget(self.amplitude_input, 7, 1)
+        
         # Output format and drumkit name in a row
         format_label = QLabel("Output Format:")
         format_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(format_label, 7, 0)
+        options_layout.addWidget(format_label, 8, 0)
         
         self.format_combo = QComboBox()
         self.format_combo.addItems(['WAV', 'FLAC', 'OGG'])
-        options_layout.addWidget(self.format_combo, 7, 1)
+        options_layout.addWidget(self.format_combo, 8, 1)
         
         drumkit_label = QLabel("Drumkit Name:")
         drumkit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(drumkit_label, 8, 0)
+        options_layout.addWidget(drumkit_label, 9, 0)
         
         self.drumkit_name_edit = QLineEdit()
         self.drumkit_name_edit.setPlaceholderText("MyDrumkit")
         self.drumkit_name_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        options_layout.addWidget(self.drumkit_name_edit, 8, 1)
+        options_layout.addWidget(self.drumkit_name_edit, 9, 1)
         
         options_group.setLayout(options_layout)
         main_layout.addWidget(options_group)
@@ -1197,6 +1216,16 @@ class MainWindow(QWidget):
 <li><b>2000ms:</b> Default - good balance of speed and accuracy</li>
 <li><b>5000ms:</b> Slower but more thorough processing</li>
 </ul>
+
+<p><b>Min Amplitude (dBFS):</b> Minimum amplitude threshold in decibels relative to full scale. Samples with amplitude below this threshold will be skipped to avoid saving unusably quiet samples.</p>
+<ul>
+<li><b>-30 dBFS:</b> Very permissive - keeps most samples including quiet ones</li>
+<li><b>-24 dBFS:</b> Moderate - filters out very quiet samples</li>
+<li><b>-20 dBFS:</b> Default - good balance, filters out unusably quiet samples</li>
+<li><b>-18 dBFS:</b> Strict - only keeps relatively loud samples</li>
+<li><b>-12 dBFS:</b> Very strict - only keeps loud samples</li>
+</ul>
+<p><b>Note:</b> dBFS (decibels relative to full scale) measures how loud a sample is. Lower values mean quieter samples. For reference: -20 dBFS is about 10% of maximum volume.</p>
 
 <h4>📁 Output Settings</h4>
 <p><b>Output Format:</b> Choose the audio format for your samples.</p>
@@ -1498,6 +1527,13 @@ YourDrumkit/
                 QMessageBox.warning(self, "Error", "Timeout must be a valid number")
                 return
             
+            # Get amplitude threshold value
+            try:
+                amplitude_value = float(self.amplitude_input.text())
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Minimum amplitude must be a valid number")
+                return
+            
             # Start processing in a separate thread
             self.worker = ProcessingWorker(
                 input_files,
@@ -1511,6 +1547,7 @@ YourDrumkit/
                 self.sensitivity_slider.value(),
                 self.similarity_slider.value() / 100.0,  # Convert percentage to 0.0-1.0 range
                 timeout_value,
+                amplitude_value,
                 self.logger  # Pass the logger
             )
             
@@ -1588,7 +1625,7 @@ class ProcessingWorker(QThread):
     status_updated = pyqtSignal(str)
     
     def __init__(self, input_files, output_path, drumkit_name, output_format, 
-                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms, logger=None):
+                 split_stems, detect_bpm, detect_pitch, classify_drums, sensitivity, similarity_threshold, timeout_ms, min_amplitude_db, logger=None):
         super().__init__()
         self.input_files = input_files if isinstance(input_files, list) else [input_files]
         self.output_path = output_path
@@ -1601,6 +1638,7 @@ class ProcessingWorker(QThread):
         self.sensitivity = sensitivity
         self.similarity_threshold = similarity_threshold
         self.timeout_ms = timeout_ms
+        self.min_amplitude_db = min_amplitude_db
         self.stop_flag = False
         self.skip_flag = False
         self.logger = logger or logging.getLogger()  # Use provided logger or fallback to root logger
@@ -1612,6 +1650,7 @@ class ProcessingWorker(QThread):
             self.dominant_frequency_detector = DominantFrequencyDetector()
             self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
             self.youtube_downloader = YouTubeDownloader(logger)
+            self.advanced_detector = AdvancedSampleDetector(min_amplitude_db, logger)
             # Note: We'll use the main window's logger for this class
             pass  # Logging will be handled by the main window
         except Exception as e:
@@ -1806,6 +1845,7 @@ class ProcessingWorker(QThread):
                 
                 try:
                     # For YouTube downloads, we need to save the audio data temporarily
+                    temp_audio_path = None  # Initialize variable
                     if hasattr(self, 'youtube_downloader') and self.youtube_downloader.temp_dir:
                         temp_audio_path = os.path.join(temp_dir, f"{file_identifier}.wav")
                         self.save_audio_sample(audio_data, sample_rate, temp_audio_path)
@@ -1813,7 +1853,15 @@ class ProcessingWorker(QThread):
                     else:
                         input_path_for_stems = None  # This will be handled by the calling code
                     
-                    stem_paths = self.demucs_processor.separate_stems(input_path_for_stems or temp_audio_path, temp_dir)
+                    # Use the appropriate path for stem separation
+                    stem_input_path = input_path_for_stems if input_path_for_stems else temp_audio_path
+                    if stem_input_path is None:
+                        # If no path is available, we need to save the audio data temporarily
+                        temp_audio_path = os.path.join(temp_dir, f"{file_identifier}.wav")
+                        self.save_audio_sample(audio_data, sample_rate, temp_audio_path)
+                        stem_input_path = temp_audio_path
+                    
+                    stem_paths = self.demucs_processor.separate_stems(stem_input_path, temp_dir)
                     if self.logger:
                         self.logger.info(f"Created stems for {file_identifier}: {list(stem_paths.keys())}")
                     print(f"Created stems: {list(stem_paths.keys())}")
@@ -2073,51 +2121,33 @@ class ProcessingWorker(QThread):
             return 1
     
     def process_stem_into_samples(self, audio_data, sample_rate, output_dir, stem_name, bpm, file_identifier=""):
-        """Process a stem into individual samples, with improved one-shot detection for bass/other."""
+        """Process a stem into individual samples using hybrid transient detection and energy-based slicing."""
         try:
             if self.logger:
-                self.logger.info(f"Processing {stem_name} into samples...")
-            # Convert to mono for sample detection
-            if len(audio_data.shape) > 1:
-                audio_mono = np.mean(audio_data, axis=0)
-            else:
-                audio_mono = audio_data
-
-            min_duration = 0.05  # 50ms
-            sample_count = 0
-            sample_boundaries = []
-            use_onset = stem_name.lower() in ["bass", "other"]
-
-            if use_onset:
-                # Verbose progress for onset detection
-                if hasattr(self, 'status_updated'):
-                    self.status_updated.emit(f"Detecting note onsets in {stem_name} stem...")
-                onset_frames = librosa.onset.onset_detect(y=audio_mono, sr=sample_rate, backtrack=True)
-                onset_samples = librosa.frames_to_samples(onset_frames)
-                # Add end of audio as last boundary
-                if len(onset_samples) == 0 or onset_samples[-1] < len(audio_mono):
-                    onset_samples = np.append(onset_samples, len(audio_mono))
-                # Build (start, end) pairs
-                for i in range(len(onset_samples) - 1):
-                    start = onset_samples[i]
-                    end = onset_samples[i + 1]
-                    if end - start > 0:
-                        sample_boundaries.append((start, end))
-                if hasattr(self, 'status_updated'):
-                    self.status_updated.emit(f"Found {len(sample_boundaries)} note onsets in {stem_name} stem.")
-            else:
-                # Try different sensitivity levels if no samples are found
-                sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
-                for sensitivity in sensitivities_to_try:
-                    sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential samples in {stem_name}.")
-                    if len(sample_boundaries) > 0:
-                        break
-                if len(sample_boundaries) == 0:
-                    sample_boundaries = [(0, len(audio_mono))]
+                self.logger.info(f"Processing {stem_name} into samples using hybrid detection...")
+            
+            # Define minimum duration for samples
+            min_duration = 0.05  # 50ms minimum duration
+            
+            # Determine if this is a drum stem for detection strategy
+            is_drum = stem_name.lower() in ["drums", "kick", "hihat", "perc", "snare", "tom", "clap"]
+            
+            # Use hybrid detection for sample boundaries
+            if hasattr(self, 'status_updated'):
+                detection_method = "transient-based" if is_drum else "energy-based"
+                self.status_updated.emit(f"Using {detection_method} detection for {stem_name} stem...")
+            
+            sample_boundaries = self.advanced_detector.hybrid_detection(audio_data, sample_rate, is_drum)
+            
+            if self.logger:
+                self.logger.info(f"Found {len(sample_boundaries)} potential samples in {stem_name} using hybrid detection")
+            
+            if len(sample_boundaries) == 0:
+                sample_boundaries = [(0, len(audio_data))]
 
             total_samples = len(sample_boundaries)
+            sample_count = 0  # Initialize sample_count
+            
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
                     if self.logger:
@@ -2140,6 +2170,21 @@ class ProcessingWorker(QThread):
                     if self.logger:
                         self.logger.error(f"Error extracting sample {i+1}: {e}")
                     continue
+                
+                # Check amplitude threshold (unless it's the only sample)
+                if total_samples > 1:
+                    try:
+                        meets_threshold, amplitude_dbfs = self.advanced_detector.check_amplitude_threshold(sample_audio)
+                        if not meets_threshold:
+                            if self.logger:
+                                self.logger.info(f"Skipping {stem_name} sample {i+1}: amplitude {amplitude_dbfs:.1f} dBFS below threshold {self.min_amplitude_db} dBFS")
+                            if hasattr(self, 'status_updated'):
+                                self.status_updated.emit(f"Skipping {stem_name} sample {i+1}: too quiet ({amplitude_dbfs:.1f} dBFS)")
+                            continue
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Error checking amplitude threshold for sample {i+1}: {e}")
+                        # Continue processing if amplitude check fails
                 
                 # Skip very short samples (unless it's the only sample)
                 try:
@@ -2279,36 +2324,25 @@ class ProcessingWorker(QThread):
             return 0  # Return 0 samples processed on error
     
     def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm, file_identifier=""):
-        """Process drums into frequency-based subfolders: Kick, Perc, HiHat"""
+        """Process drums into frequency-based subfolders: Kick, Perc, HiHat using hybrid detection"""
         try:
-            # Convert to mono for sample detection
-            if len(audio_data.shape) > 1:
-                audio_mono = np.mean(audio_data, axis=0)
-            else:
-                audio_mono = audio_data
+            if self.logger:
+                self.logger.info(f"Processing drums with hybrid detection...")
             
-            print(f"Processing drums: audio length {len(audio_mono)/sample_rate:.2f}s, sensitivity {self.sensitivity}dB")
+            # Use hybrid detection optimized for drums (transient-based)
+            if hasattr(self, 'status_updated'):
+                self.status_updated.emit("Using transient-based detection for drums...")
             
-            # Try different sensitivity levels if no samples are found
-            sensitivities_to_try = [self.sensitivity, self.sensitivity + 5, self.sensitivity + 10, 30]
-            sample_boundaries = []
+            sample_boundaries = self.advanced_detector.hybrid_detection(audio_data, sample_rate, is_drum=True)
             
-            for sensitivity in sensitivities_to_try:
-                sample_boundaries = librosa.effects.split(audio_mono, top_db=sensitivity)
-                print(f"Tried sensitivity {sensitivity}dB: found {len(sample_boundaries)} potential drum samples")
-                
-                if len(sample_boundaries) > 0:
-                    break
+            if self.logger:
+                self.logger.info(f"Found {len(sample_boundaries)} potential drum samples using hybrid detection")
             
             if len(sample_boundaries) == 0:
-                print(f"No drum samples detected even with high sensitivity. Creating single sample.")
+                if self.logger:
+                    self.logger.warning("No drum samples detected. Creating single sample.")
                 # Create one sample from the entire audio
-                sample_boundaries = [(0, len(audio_mono))]
-            
-            # Ensure we have at least one sample boundary
-            if len(sample_boundaries) == 0:
-                print("ERROR: Still no sample boundaries found. Creating fallback sample.")
-                sample_boundaries = [(0, min(len(audio_mono), sample_rate * 5))]  # 5 seconds max
+                sample_boundaries = [(0, len(audio_data))]
             
             # Create subfolders for different drum types
             kick_dir = os.path.join(output_dir, "Kick")
@@ -2324,30 +2358,56 @@ class ProcessingWorker(QThread):
                 if self.stop_flag:
                     break
                 
+                # Check for skip flag
+                if self.skip_flag:
+                    if self.logger:
+                        self.logger.info(f"Skipping drum sample {i+1}/{len(sample_boundaries)}")
+                    self.skip_flag = False  # Reset skip flag
+                    continue
+                
                 # Extract sample
-                if len(audio_data.shape) > 1:
-                    sample_audio = audio_data[:, start:end]
-                else:
-                    sample_audio = audio_data[start:end]
+                try:
+                    if len(audio_data.shape) > 1:
+                        sample_audio = audio_data[:, start:end]
+                    else:
+                        sample_audio = audio_data[start:end]
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Error extracting drum sample {i+1}: {e}")
+                    continue
+                
+                # Check amplitude threshold (unless it's the only sample)
+                if len(sample_boundaries) > 1:
+                    try:
+                        meets_threshold, amplitude_dbfs = self.advanced_detector.check_amplitude_threshold(sample_audio)
+                        if not meets_threshold:
+                            if self.logger:
+                                self.logger.info(f"Skipping drum sample {i+1}: amplitude {amplitude_dbfs:.1f} dBFS below threshold {self.min_amplitude_db} dBFS")
+                            if hasattr(self, 'status_updated'):
+                                self.status_updated.emit(f"Skipping drum sample {i+1}: too quiet ({amplitude_dbfs:.1f} dBFS)")
+                            continue
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Error checking amplitude threshold for drum sample {i+1}: {e}")
+                        # Continue processing if amplitude check fails
                 
                 # Skip very short samples (unless it's the only sample)
                 sample_duration = sample_audio.shape[-1] / sample_rate
                 if sample_duration < 0.01 and len(sample_boundaries) > 1:  # Less than 10ms
-                    print(f"Skipping drum sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
-                    continue
-                
-                # Skip very quiet samples (unless it's the only sample)
-                sample_rms = np.sqrt(np.mean(sample_audio**2))
-                if sample_rms < 0.001 and len(sample_boundaries) > 1:  # Very quiet
-                    print(f"Skipping drum sample {i+1}: too quiet (RMS: {sample_rms:.6f})")
+                    if self.logger:
+                        self.logger.info(f"Skipping drum sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping drum sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                     continue
                 
                 # Log sample details for debugging
-                print(f"Processing drum sample {i+1}: duration {sample_duration:.3f}s, RMS {sample_rms:.6f}")
+                if self.logger:
+                    self.logger.info(f"Processing drum sample {i+1}: duration {sample_duration:.3f}s")
                 
                 # Classify drum sample based on frequency characteristics
                 drum_type = self.classify_drum_by_frequency(sample_audio, sample_rate)
-                print(f"Classified as: {drum_type}")
+                if self.logger:
+                    self.logger.info(f"Classified as: {drum_type}")
                 
                 # Determine target directory
                 if drum_type == "Kick":
@@ -2376,54 +2436,95 @@ class ProcessingWorker(QThread):
                     )
                     if freq_status == "success" and freq_result and freq_result != "N/A":
                         filename_parts.append(freq_result)
+                        if self.logger:
+                            self.logger.info(f"Dominant frequency detected for {drum_type} sample {i+1}: {freq_result}")
                     elif freq_status == "timeout":
+                        if self.logger:
+                            self.logger.warning(f"Dominant frequency detection timeout for {drum_type} sample {i+1}")
                         if hasattr(self, 'status_updated'):
                             self.status_updated.emit(f"Dominant frequency detection timeout for {drum_type} sample {i+1}, continuing...")
                     else:
+                        if self.logger:
+                            self.logger.warning(f"Dominant frequency detection failed for {drum_type} sample {i+1}: {freq_status}")
                         if hasattr(self, 'status_updated'):
                             self.status_updated.emit(f"Dominant frequency detection failed for {drum_type} sample {i+1}: {freq_status}")
                 
-                # Create final filename
-                filename = "_".join(filename_parts) + f".{self.output_format.capitalize()}"
+                filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
                 filepath = os.path.join(target_dir, filename)
                 
                 # Similarity check with timeout
-                print(f"Checking similarity for {drum_type} sample {i+1}...")
-                similarity_result, similarity_status = self.run_with_timeout(
-                    self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, drum_type
-                )
+                try:
+                    similarity_result, similarity_status = self.run_with_timeout(
+                        self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, drum_type
+                    )
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Error during similarity check for {drum_type} sample {i+1}: {e}")
+                    similarity_status = "error"
+                    similarity_result = False
                 
                 if similarity_status == "timeout":
+                    if self.logger:
+                        self.logger.warning(f"Similarity check timeout for {drum_type} sample {i+1}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check timeout for {drum_type} sample {i+1}, saving sample...")
                     # Save sample even if similarity check times out
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                        if self.logger:
+                            self.logger.info(f"Saved {drum_type} sample {i+1}: {filename}")
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to save sample after similarity timeout: {e}")
                 elif similarity_status == "success" and similarity_result:
+                    if self.logger:
+                        self.logger.info(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
                     continue
                 elif similarity_status == "success" and not similarity_result:
                     # Not similar, save the sample
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
+                    if self.logger:
+                        self.logger.info(f"Saving {drum_type} sample {i+1}: {filename}")
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to save {drum_type} sample {i+1}: {e}")
+                        if hasattr(self, 'status_updated'):
+                            self.status_updated.emit(f"Failed to save {drum_type} sample {i+1}: {str(e)}")
                 else:
                     # Similarity check failed, save sample anyway
+                    if self.logger:
+                        self.logger.warning(f"Similarity check failed for {drum_type} sample {i+1}: {similarity_status}, saving sample...")
                     if hasattr(self, 'status_updated'):
                         self.status_updated.emit(f"Similarity check failed for {drum_type} sample {i+1}: {similarity_status}, saving sample...")
-                    self.save_audio_sample(sample_audio, sample_rate, filepath)
-                    sample_count += 1
-            
-            print(f"Successfully created {sample_count} drum samples:")
-            print(f"  - Kick: {len(os.listdir(kick_dir))} samples")
-            print(f"  - Perc: {len(os.listdir(perc_dir))} samples")
-            print(f"  - HiHat: {len(os.listdir(hihat_dir))} samples")
-            return sample_count
+                    try:
+                        self.save_audio_sample(sample_audio, sample_rate, filepath)
+                        sample_count += 1
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.error(f"Failed to save sample after similarity failure: {e}")
                 
+                # Update progress
+                if hasattr(self, 'status_updated'):
+                    self.status_updated.emit(f"Processed {drum_type} sample {i+1}/{len(sample_boundaries)}...")
+                if hasattr(self, 'progress_updated'):
+                    self.progress_updated.emit(40 + int(50 * (i+1) / max(1, len(sample_boundaries))))
+            
+            if self.logger:
+                self.logger.info(f"Successfully created {sample_count} drum samples")
+            if hasattr(self, 'status_updated'):
+                self.status_updated.emit(f"Successfully created {sample_count} drum samples.")
+            return sample_count
+            
         except Exception as e:
-            print(f"Error processing drums: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.logger:
+                self.logger.error(f"Error processing drums: {e}")
+            if hasattr(self, 'status_updated'):
+                self.status_updated.emit(f"Error processing drums: {str(e)}")
             return 0
 
     def classify_drum_by_frequency(self, audio_data, sample_rate):
@@ -2478,7 +2579,7 @@ class ProcessingWorker(QThread):
         try:
             metadata = {
                 "drumkit_name": self.drumkit_name,
-                "source_file": self.input_path,
+                "source_files": self.input_files if hasattr(self, 'input_files') else [],
                 "bpm": bpm,
                 "created_date": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "processing_options": {
@@ -2489,6 +2590,7 @@ class ProcessingWorker(QThread):
                     "sensitivity": self.sensitivity,
                     "similarity_threshold": self.similarity_threshold,
                     "sample_timeout_ms": self.timeout_ms,
+                    "min_amplitude_db": self.min_amplitude_db,
                     "output_format": self.output_format
                 }
             }
@@ -2498,6 +2600,8 @@ class ProcessingWorker(QThread):
                 json.dump(metadata, f, indent=2)
                 
         except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error creating metadata: {e}")
             print(f"Error creating metadata: {e}")
     
     def skip_current_sample(self):
@@ -2546,6 +2650,195 @@ class ProcessingWorker(QThread):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error during cleanup: {e}")
+
+class AdvancedSampleDetector:
+    """Advanced sample detection using hybrid transient detection and energy-based slicing"""
+    
+    def __init__(self, min_amplitude_db=-24.0, logger=None):
+        self.min_amplitude_db = min_amplitude_db
+        self.logger = logger
+        
+        # Transient detection parameters
+        self.transient_threshold = 0.1
+        self.transient_min_distance = 0.05  # 50ms minimum between transients
+        
+        # Energy-based slicing parameters
+        self.energy_threshold = 0.15
+        self.energy_smoothing = 0.02  # 20ms smoothing window
+        
+        # Hybrid parameters
+        self.hybrid_weight_transient = 0.7
+        self.hybrid_weight_energy = 0.3
+        
+    def detect_transients(self, audio_data, sample_rate):
+        """Detect transients using spectral flux and peak detection"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate spectral flux (change in spectral content over time)
+            hop_length = int(0.01 * sample_rate)  # 10ms hop
+            frame_length = int(0.025 * sample_rate)  # 25ms frame
+            
+            # Compute STFT
+            stft = librosa.stft(audio_mono, n_fft=frame_length, hop_length=hop_length)
+            magnitude = np.abs(stft)
+            
+            # Calculate spectral flux
+            spectral_flux = np.sum(np.diff(magnitude, axis=1)**2, axis=0)
+            
+            # Normalize spectral flux
+            spectral_flux = spectral_flux / (np.max(spectral_flux) + 1e-8)
+            
+            # Find peaks in spectral flux
+            min_distance_samples = int(self.transient_min_distance * sample_rate / hop_length)
+            peaks, properties = find_peaks(spectral_flux, 
+                                         height=self.transient_threshold,
+                                         distance=min_distance_samples,
+                                         prominence=0.1)
+            
+            # Convert frame indices to sample indices
+            transient_samples = peaks * hop_length
+            
+            return transient_samples, spectral_flux
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in transient detection: {e}")
+            return np.array([]), np.array([])
+    
+    def energy_based_slicing(self, audio_data, sample_rate):
+        """Energy-based slicing using RMS energy and adaptive thresholds"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate RMS energy over time
+            frame_length = int(0.02 * sample_rate)  # 20ms frames
+            hop_length = int(0.01 * sample_rate)  # 10ms hop
+            
+            rms_energy = []
+            for i in range(0, len(audio_mono) - frame_length, hop_length):
+                frame = audio_mono[i:i + frame_length]
+                rms = np.sqrt(np.mean(frame**2))
+                rms_energy.append(rms)
+            
+            rms_energy = np.array(rms_energy)
+            
+            # Smooth the energy curve
+            smoothing_samples = int(self.energy_smoothing * sample_rate / hop_length)
+            rms_energy_smooth = gaussian_filter1d(rms_energy, smoothing_samples)
+            
+            # Calculate adaptive threshold
+            energy_threshold = np.percentile(rms_energy_smooth, 70) * self.energy_threshold
+            
+            # Find regions above threshold
+            above_threshold = rms_energy_smooth > energy_threshold
+            
+            # Find boundaries (transitions from below to above threshold)
+            boundaries = np.where(np.diff(above_threshold.astype(int)) == 1)[0]
+            
+            # Convert to sample indices
+            boundary_samples = boundaries * hop_length
+            
+            return boundary_samples, rms_energy_smooth
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in energy-based slicing: {e}")
+            return np.array([]), np.array([])
+    
+    def hybrid_detection(self, audio_data, sample_rate, is_drum=True):
+        """Hybrid detection combining transient and energy-based methods"""
+        try:
+            # Get transient and energy boundaries
+            transient_samples, spectral_flux = self.detect_transients(audio_data, sample_rate)
+            energy_samples, rms_energy = self.energy_based_slicing(audio_data, sample_rate)
+            
+            # Combine boundaries with different weights for drums vs other instruments
+            if is_drum:
+                # For drums: prioritize transients, use energy as backup
+                primary_boundaries = transient_samples
+                secondary_boundaries = energy_samples
+                primary_weight = self.hybrid_weight_transient
+                secondary_weight = self.hybrid_weight_energy
+            else:
+                # For other instruments: more balanced approach
+                primary_boundaries = energy_samples
+                secondary_boundaries = transient_samples
+                primary_weight = self.hybrid_weight_energy
+                secondary_weight = self.hybrid_weight_transient
+            
+            # Combine boundaries
+            all_boundaries = np.concatenate([primary_boundaries, secondary_boundaries])
+            all_boundaries = np.sort(all_boundaries)
+            
+            # Remove duplicates and nearby boundaries
+            min_distance = int(0.05 * sample_rate)  # 50ms minimum distance
+            filtered_boundaries = []
+            
+            for boundary in all_boundaries:
+                if not filtered_boundaries or boundary - filtered_boundaries[-1] >= min_distance:
+                    filtered_boundaries.append(boundary)
+            
+            # Add start and end boundaries
+            boundaries = np.array([0] + filtered_boundaries + [len(audio_data)])
+            
+            # Create sample boundaries
+            sample_boundaries = []
+            for i in range(len(boundaries) - 1):
+                start = boundaries[i]
+                end = boundaries[i + 1]
+                
+                # Skip very short samples
+                if end - start > int(0.01 * sample_rate):  # At least 10ms
+                    sample_boundaries.append((start, end))
+            
+            return sample_boundaries
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in hybrid detection: {e}")
+            return [(0, len(audio_data))]
+    
+    def check_amplitude_threshold(self, audio_data):
+        """Check if sample meets minimum amplitude threshold"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
+            else:
+                audio_mono = audio_data
+            
+            # Calculate peak amplitude in dBFS
+            peak_amplitude = np.max(np.abs(audio_mono))
+            peak_dbfs = 20 * np.log10(peak_amplitude + 1e-8)
+            
+            # Calculate RMS amplitude in dBFS
+            rms_amplitude = np.sqrt(np.mean(audio_mono**2))
+            rms_dbfs = 20 * np.log10(rms_amplitude + 1e-8)
+            
+            # Use the higher of peak or RMS for threshold checking
+            amplitude_dbfs = max(peak_dbfs, rms_dbfs)
+            
+            # Check against threshold
+            meets_threshold = amplitude_dbfs >= self.min_amplitude_db
+            
+            if self.logger and not meets_threshold:
+                self.logger.info(f"Sample rejected: amplitude {amplitude_dbfs:.1f} dBFS below threshold {self.min_amplitude_db} dBFS")
+            
+            return meets_threshold, amplitude_dbfs
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error checking amplitude threshold: {e}")
+            return True, 0.0  # Default to accepting if error occurs
 
 def main():
     """Main application entry point"""

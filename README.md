@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.7-blue)
+![Version](https://img.shields.io/badge/version-0.0.8-blue)
 
 ---
 
@@ -23,6 +23,8 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Skip Functionality**: Skip individual samples during processing
 - **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
 - **YouTube Integration**: Download and process YouTube videos, playlists, and channels directly
+- **Hybrid Sample Detection**: Advanced transient detection and energy-based slicing for improved one-shot detection
+- **Minimum Amplitude Threshold**: Configurable threshold to filter out unusably quiet samples
 
 ## Installation
 
@@ -126,6 +128,7 @@ MagicSample supports processing YouTube content directly:
    - **Sample Detection Sensitivity**: Adjust sample detection sensitivity (5-30)
    - **Sample Similarity Threshold**: Control duplicate detection (0-100%)
    - **Sample Timeout**: Maximum processing time per sample (milliseconds)
+   - **Min Amplitude (dBFS)**: Minimum amplitude threshold to filter out quiet samples
    - **Output Format**: Choose WAV, FLAC, or OGG
    - **Drumkit Name**: Name for your drumkit folder
 5. **Start Processing**: Click "Start Processing" and monitor progress
