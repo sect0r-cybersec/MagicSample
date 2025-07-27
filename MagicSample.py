@@ -14,7 +14,7 @@ This version uses Demucs for stem separation and includes:
 - Hybrid transient detection and energy-based slicing
 - Minimum amplitude threshold filtering
 """
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -189,6 +189,8 @@ class DrumClassifier:
             self.classifier = RandomForestClassifier(n_estimators=100, random_state=42)
             self.scaler = StandardScaler()
             self.is_trained = False
+            if self.logger:
+                self.logger.info("ML classifier initialized (requires training data to be used)")
         except ImportError:
             if self.logger:
                 self.logger.warning("scikit-learn not available, using heuristic fallback")
@@ -415,7 +417,7 @@ class DrumClassifier:
             # If classifier is not available or not trained, use heuristic
             if self.classifier is None or not self.is_trained:
                 if self.logger:
-                    self.logger.info("Using heuristic classification (ML classifier not available)")
+                    self.logger.info("Using heuristic classification (ML classifier not trained - requires labeled training data)")
                 return self.heuristic_classification(features)
             
             # Prepare feature vector for ML classifier
@@ -464,6 +466,72 @@ class DrumClassifier:
             if self.logger:
                 self.logger.error(f"Error in ML classification: {e}")
             return self.heuristic_classification(features)
+    
+    def train_classifier(self, training_data, training_labels):
+        """Train the ML classifier with labeled drum samples
+        
+        Args:
+            training_data: List of feature dictionaries from extract_research_features()
+            training_labels: List of labels ('kick', 'snare', 'hihat', 'clap', 'perc')
+        """
+        try:
+            if self.classifier is None:
+                if self.logger:
+                    self.logger.error("Cannot train: ML classifier not available")
+                return False
+            
+            if len(training_data) < 10:
+                if self.logger:
+                    self.logger.warning("Insufficient training data (need at least 10 samples)")
+                return False
+            
+            # Prepare feature vectors
+            feature_names = [
+                'spectral_centroid_mean', 'spectral_centroid_std',
+                'spectral_flatness_mean', 'spectral_flatness_std',
+                'spectral_contrast_mean', 'spectral_contrast_std',
+                'rms_mean', 'rms_std',
+                'low_energy', 'mid_energy', 'high_energy',
+                'low_energy_ratio', 'mid_energy_ratio', 'high_energy_ratio',
+                'zcr_mean', 'zcr_std',
+                'attack_time', 'attack_slope',
+                'spectral_rolloff_mean', 'spectral_bandwidth_mean',
+                'duration'
+            ]
+            
+            # Add MFCC features
+            for i in range(13):
+                feature_names.extend([f'mfcc_{i}_mean', f'mfcc_{i}_std', 
+                                    f'mfcc_delta_{i}_mean', f'mfcc_delta_{i}_std'])
+            
+            # Create feature matrix
+            X = []
+            for features in training_data:
+                feature_vector = []
+                for name in feature_names:
+                    feature_vector.append(features.get(name, 0.0))
+                X.append(feature_vector)
+            
+            # Convert to numpy arrays
+            X = np.array(X)
+            y = np.array(training_labels)
+            
+            # Fit scaler and transform features
+            X_scaled = self.scaler.fit_transform(X)
+            
+            # Train classifier
+            self.classifier.fit(X_scaled, y)
+            self.is_trained = True
+            
+            if self.logger:
+                self.logger.info(f"ML classifier trained successfully with {len(training_data)} samples")
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error training ML classifier: {e}")
+            return False
 
 class DominantFrequencyDetector:
     """Advanced dominant frequency detection using multiple algorithms for robust results"""
