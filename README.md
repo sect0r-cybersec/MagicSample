@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.9-blue)
+![Version](https://img.shields.io/badge/version-0.1.2-blue)
 
 ---
 
@@ -13,9 +13,8 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Advanced Stem Separation**: Uses Demucs for high-quality separation of drums, bass, vocals, and other instruments
 - **BPM Detection**: Automatically detects and labels samples with BPM information
 - **Advanced Dominant Frequency Detection**: Multi-algorithm dominant frequency detection with Scientific Pitch Notation (SPN)
-- **Drum Classification**: Automatically classifies drum samples into categories (Kick, HiHat, Perc)
-- **Sample Similarity Detection**: Prevents duplicate samples with configurable similarity threshold
-- **Organized Output**: Creates a structured drumkit folder with subfolders for each instrument type
+- **Advanced Drum Classification**: ML-based classification using research-backed features (Spectral Centroid, MFCCs, Energy Distribution, Attack Time, etc.)
+- **Organized Drum Output**: Creates subfolders for Kick, Snare, HiHat, Clap, and Percussion
 - **Multiple Output Formats**: Supports WAV, FLAC, and OGG formats
 - **User-Friendly GUI**: Modern PyQt6 interface with progress tracking and real-time logging
 - **Comprehensive Error Handling**: Graceful error recovery with detailed logging

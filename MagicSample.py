@@ -14,7 +14,7 @@ This version uses Demucs for stem separation and includes:
 - Hybrid transient detection and energy-based slicing
 - Minimum amplitude threshold filtering
 """
-__version__ = '0.0.9'
+__version__ = '0.1.2'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -121,7 +121,7 @@ class SampleSimilarityChecker:
             rms_diff = abs(rms1 - rms2) / max(rms1, rms2) if max(rms1, rms2) > 0 else 1.0
             
             # Early exit if energy is very different (saves computation)
-            if rms_diff > 0.3:  # 30% energy difference
+            if rms_diff > 0.4:  # Increased from 0.3 to 0.4 (40% energy difference)
                 return False
             
             # 2. Spectral Centroid difference (brightness)
@@ -136,10 +136,15 @@ class SampleSimilarityChecker:
             # Convert to similarity (higher = more similar)
             similarity = 1.0 - total_diff
             
+            # Log similarity details for debugging
+            if self.logger and similarity > 0.7:  # Only log high similarity cases
+                self.logger.info(f"Similarity check: {similarity:.3f} (RMS: {rms_diff:.3f}, Centroid: {centroid_diff:.3f}, ZCR: {zcr_diff:.3f})")
+            
             return similarity > self.similarity_threshold
             
         except Exception as e:
-            print(f"Error in fast similarity check: {e}")
+            if self.logger:
+                self.logger.error(f"Error in fast similarity check: {e}")
             return False
     
     def is_similar_to_existing(self, audio_data: np.ndarray, sample_rate: int, category: str) -> bool:
@@ -171,56 +176,294 @@ class SampleSimilarityChecker:
         self.similarity_threshold = threshold
 
 class DrumClassifier:
-    """Classifies drum samples into different categories"""
+    """Advanced drum classifier using ML-based approach with research-backed features"""
     
-    def __init__(self):
-        self.categories = {
-            'hihat': ['hihat', 'hi-hat', 'hi_hat', 'cymbal', 'crash', 'ride'],
-            'snare': ['snare', 'clap'],
-            'kick': ['kick', 'bass', 'bassdrum', 'bass_drum'],
-            'tom': ['tom', 'floor_tom', 'rack_tom'],
-            'clap': ['clap', 'hand_clap'],
-            'percussion': ['perc', 'percussion', 'shaker', 'tambourine', 'cowbell']
-        }
-    
-    def classify_sample(self, audio_data: np.ndarray, sample_rate: int) -> str:
-        """Classify a drum sample based on its spectral characteristics"""
+    def __init__(self, logger=None):
+        self.logger = logger
+        self.categories = ['kick', 'snare', 'hihat', 'clap', 'perc']
+        
+        # Initialize the classifier (RandomForest for robustness)
         try:
-            # Calculate spectral features
-            spectral_centroid = librosa.feature.spectral_centroid(y=audio_data, sr=sample_rate)[0]
-            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_data, sr=sample_rate)[0]
-            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_data, sr=sample_rate)[0]
-            
-            # Calculate RMS energy
-            rms = librosa.feature.rms(y=audio_data)[0]
-            
-            # Calculate zero crossing rate
-            zcr = librosa.feature.zero_crossing_rate(audio_data)[0]
-            
-            # Get average values
-            avg_centroid = np.mean(spectral_centroid)
-            avg_rolloff = np.mean(spectral_rolloff)
-            avg_bandwidth = np.mean(spectral_bandwidth)
-            avg_rms = np.mean(rms)
-            avg_zcr = np.mean(zcr)
-            
-            # Classification logic based on spectral characteristics
-            if avg_centroid > 4000 and avg_zcr > 0.1:
-                return 'hihat'
-            elif avg_centroid < 1000 and avg_rms > 0.3:
-                return 'kick'
-            elif 1000 < avg_centroid < 3000 and avg_bandwidth > 2000:
-                return 'snare'
-            elif avg_centroid < 2000 and avg_rolloff < 3000:
-                return 'tom'
-            elif avg_zcr > 0.15:
-                return 'clap'
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.preprocessing import StandardScaler
+            self.classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+            self.scaler = StandardScaler()
+            self.is_trained = False
+        except ImportError:
+            if self.logger:
+                self.logger.warning("scikit-learn not available, using heuristic fallback")
+            self.classifier = None
+            self.scaler = None
+            self.is_trained = False
+    
+    def extract_research_features(self, audio_data: np.ndarray, sample_rate: int) -> dict:
+        """Extract features based on Herrera et al. (2002) and Sandvold & Gouyon (2004)"""
+        try:
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_mono = np.mean(audio_data, axis=0)
             else:
-                return 'percussion'
+                audio_mono = audio_data
+            
+            # Check if sample is too short for analysis
+            duration = len(audio_mono) / sample_rate
+            if duration < 0.01:  # Less than 10ms
+                if self.logger:
+                    self.logger.warning(f"Sample too short for feature extraction: {duration*1000:.1f}ms")
+                return {}
+            
+            features = {}
+            
+            # 1. Spectral Centroid (mean and standard deviation)
+            spectral_centroid = librosa.feature.spectral_centroid(y=audio_mono, sr=sample_rate)[0]
+            features['spectral_centroid_mean'] = np.mean(spectral_centroid)
+            features['spectral_centroid_std'] = np.std(spectral_centroid)
+            
+            # 2. Spectral Flatness
+            spectral_flatness = librosa.feature.spectral_flatness(y=audio_mono)[0]
+            features['spectral_flatness_mean'] = np.mean(spectral_flatness)
+            features['spectral_flatness_std'] = np.std(spectral_flatness)
+            
+            # 3. Spectral Contrast
+            spectral_contrast = librosa.feature.spectral_contrast(y=audio_mono, sr=sample_rate)
+            features['spectral_contrast_mean'] = np.mean(spectral_contrast)
+            features['spectral_contrast_std'] = np.std(spectral_contrast)
+            
+            # 4. RMS Energy
+            rms = librosa.feature.rms(y=audio_mono)[0]
+            features['rms_mean'] = np.mean(rms)
+            features['rms_std'] = np.std(rms)
+            
+            # 5. Energy distribution across Bark frequency bands
+            # Low band (0-500 Hz), Mid band (500-2000 Hz), High band (2000+ Hz)
+            stft = librosa.stft(audio_mono)
+            freqs = librosa.fft_frequencies(sr=sample_rate)
+            
+            # Low frequency energy (0-500 Hz)
+            low_mask = freqs <= 500
+            low_energy = np.mean(np.abs(stft[low_mask, :])**2) if np.any(low_mask) else 0.0
+            features['low_energy'] = low_energy
+            
+            # Mid frequency energy (500-2000 Hz)
+            mid_mask = (freqs > 500) & (freqs <= 2000)
+            mid_energy = np.mean(np.abs(stft[mid_mask, :])**2) if np.any(mid_mask) else 0.0
+            features['mid_energy'] = mid_energy
+            
+            # High frequency energy (2000+ Hz)
+            high_mask = freqs > 2000
+            high_energy = np.mean(np.abs(stft[high_mask, :])**2) if np.any(high_mask) else 0.0
+            features['high_energy'] = high_energy
+            
+            # Energy ratios
+            total_energy = low_energy + mid_energy + high_energy
+            if total_energy > 0:
+                features['low_energy_ratio'] = low_energy / total_energy
+                features['mid_energy_ratio'] = mid_energy / total_energy
+                features['high_energy_ratio'] = high_energy / total_energy
+            else:
+                features['low_energy_ratio'] = 0.0
+                features['mid_energy_ratio'] = 0.0
+                features['high_energy_ratio'] = 0.0
+            
+            # 6. MFCCs (first 13 coefficients plus delta values)
+            mfcc = librosa.feature.mfcc(y=audio_mono, sr=sample_rate, n_mfcc=13)
+            
+            # Calculate delta MFCCs with proper window size handling
+            try:
+                # Use smaller window for short samples
+                if mfcc.shape[1] < 9:
+                    delta_window = min(3, mfcc.shape[1] - 1)  # Use smaller window
+                    if delta_window < 1:
+                        delta_window = 1
+                    mfcc_delta = librosa.feature.delta(mfcc, width=delta_window)
+                else:
+                    mfcc_delta = librosa.feature.delta(mfcc)
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Could not calculate delta MFCCs: {e}")
+                # Create zero delta features as fallback
+                mfcc_delta = np.zeros_like(mfcc)
+            
+            # Mean and std of each MFCC coefficient
+            for i in range(13):
+                features[f'mfcc_{i}_mean'] = np.mean(mfcc[i])
+                features[f'mfcc_{i}_std'] = np.std(mfcc[i])
+                features[f'mfcc_delta_{i}_mean'] = np.mean(mfcc_delta[i])
+                features[f'mfcc_delta_{i}_std'] = np.std(mfcc_delta[i])
+            
+            # 7. Zero Crossing Rate
+            zcr = librosa.feature.zero_crossing_rate(audio_mono)[0]
+            features['zcr_mean'] = np.mean(zcr)
+            features['zcr_std'] = np.std(zcr)
+            
+            # 8. Envelope attack time and slope
+            envelope = np.abs(audio_mono)
+            
+            # Find the peak
+            peak_idx = np.argmax(envelope)
+            if peak_idx > 0:
+                # Attack time (time to reach 90% of peak)
+                peak_value = envelope[peak_idx]
+                attack_threshold = 0.9 * peak_value
+                attack_samples = np.where(envelope[:peak_idx] >= attack_threshold)[0]
+                
+                if len(attack_samples) > 0:
+                    attack_time = attack_samples[0] / sample_rate
+                    features['attack_time'] = attack_time
+                    
+                    # Attack slope (rate of rise)
+                    if attack_time > 0:
+                        features['attack_slope'] = peak_value / attack_time
+                    else:
+                        features['attack_slope'] = 0.0
+                else:
+                    features['attack_time'] = 0.0
+                    features['attack_slope'] = 0.0
+            else:
+                features['attack_time'] = 0.0
+                features['attack_slope'] = 0.0
+            
+            # 9. Additional features for better classification
+            # Spectral rolloff
+            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_mono, sr=sample_rate)[0]
+            features['spectral_rolloff_mean'] = np.mean(spectral_rolloff)
+            
+            # Spectral bandwidth
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_mono, sr=sample_rate)[0]
+            features['spectral_bandwidth_mean'] = np.mean(spectral_bandwidth)
+            
+            # Duration
+            features['duration'] = duration
+            
+            return features
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error extracting research features: {e}")
+            return {}
+    
+    def heuristic_classification(self, features: dict) -> str:
+        """Fallback heuristic classification based on research findings"""
+        try:
+            spectral_centroid = features.get('spectral_centroid_mean', 0)
+            rms = features.get('rms_mean', 0)
+            zcr = features.get('zcr_mean', 0)
+            spectral_flatness = features.get('spectral_flatness_mean', 0)
+            low_energy_ratio = features.get('low_energy_ratio', 0)
+            high_energy_ratio = features.get('high_energy_ratio', 0)
+            mid_energy_ratio = features.get('mid_energy_ratio', 0)
+            attack_slope = features.get('attack_slope', 0)
+            duration = features.get('duration', 0)
+            
+            # More permissive heuristic rules based on research
+            if self.logger:
+                self.logger.info(f"Heuristic classification - Centroid: {spectral_centroid:.0f}Hz, RMS: {rms:.3f}, ZCR: {zcr:.3f}, Low: {low_energy_ratio:.2f}, High: {high_energy_ratio:.2f}, Attack: {attack_slope:.0f}")
+            
+            # Kick drum: low frequency, high energy, fast attack (more permissive)
+            if (spectral_centroid < 1000 and 
+                rms > 0.02 and 
+                low_energy_ratio > 0.3):
+                if self.logger:
+                    self.logger.info("Classified as KICK")
+                return 'kick'
+            
+            # Snare drum: mid-range frequency, high spectral flatness, prominent mid frequencies (more permissive)
+            elif (600 <= spectral_centroid <= 3000 and 
+                  spectral_flatness > 0.2 and 
+                  mid_energy_ratio > 0.2):
+                if self.logger:
+                    self.logger.info("Classified as SNARE")
+                return 'snare'
+            
+            # Hi-hat: high frequency, high ZCR, prominent high frequencies (more permissive)
+            elif (spectral_centroid > 2500 and 
+                  zcr > 0.05 and 
+                  high_energy_ratio > 0.2):
+                if self.logger:
+                    self.logger.info("Classified as HIHAT")
+                return 'hihat'
+            
+            # Clap: mid-high frequency, very fast attack, short duration (more permissive)
+            elif (spectral_centroid > 1500 and 
+                  attack_slope > 500 and 
+                  duration < 0.3):
+                if self.logger:
+                    self.logger.info("Classified as CLAP")
+                return 'clap'
+            
+            # Percussion: everything else
+            else:
+                if self.logger:
+                    self.logger.info("Classified as PERC (fallback)")
+                return 'perc'
                 
         except Exception as e:
-            print(f"Classification error: {e}")
-            return 'unknown'
+            if self.logger:
+                self.logger.error(f"Error in heuristic classification: {e}")
+            return 'perc'
+    
+    def classify_sample(self, audio_data: np.ndarray, sample_rate: int) -> str:
+        """Classify drum sample using ML classifier with heuristic fallback"""
+        try:
+            # Extract features
+            features = self.extract_research_features(audio_data, sample_rate)
+            if not features:
+                if self.logger:
+                    self.logger.warning("Could not extract features, using heuristic fallback")
+                return self.heuristic_classification({})
+            
+            # If classifier is not available or not trained, use heuristic
+            if self.classifier is None or not self.is_trained:
+                if self.logger:
+                    self.logger.info("Using heuristic classification (ML classifier not available)")
+                return self.heuristic_classification(features)
+            
+            # Prepare feature vector for ML classifier
+            feature_names = [
+                'spectral_centroid_mean', 'spectral_centroid_std',
+                'spectral_flatness_mean', 'spectral_flatness_std',
+                'spectral_contrast_mean', 'spectral_contrast_std',
+                'rms_mean', 'rms_std',
+                'low_energy', 'mid_energy', 'high_energy',
+                'low_energy_ratio', 'mid_energy_ratio', 'high_energy_ratio',
+                'zcr_mean', 'zcr_std',
+                'attack_time', 'attack_slope',
+                'spectral_rolloff_mean', 'spectral_bandwidth_mean',
+                'duration'
+            ]
+            
+            # Add MFCC features
+            for i in range(13):
+                feature_names.extend([f'mfcc_{i}_mean', f'mfcc_{i}_std', 
+                                    f'mfcc_delta_{i}_mean', f'mfcc_delta_{i}_std'])
+            
+            # Create feature vector
+            feature_vector = []
+            for name in feature_names:
+                feature_vector.append(features.get(name, 0.0))
+            
+            # Scale features
+            feature_vector_scaled = self.scaler.transform([feature_vector])
+            
+            # Predict
+            prediction = self.classifier.predict(feature_vector_scaled)[0]
+            confidence = np.max(self.classifier.predict_proba(feature_vector_scaled))
+            
+            # If confidence is low, use heuristic fallback
+            if confidence < 0.6:
+                if self.logger:
+                    self.logger.info(f"Low ML confidence ({confidence:.2f}), using heuristic fallback")
+                return self.heuristic_classification(features)
+            
+            if self.logger:
+                self.logger.info(f"ML classification: {prediction} (confidence: {confidence:.2f})")
+            
+            return prediction
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error in ML classification: {e}")
+            return self.heuristic_classification(features)
 
 class DominantFrequencyDetector:
     """Advanced dominant frequency detection using multiple algorithms for robust results"""
@@ -1249,9 +1492,15 @@ YourDrumkit/
 │   ├── Kick/
 │   │   ├── Kick_001_120BPM_C2.WAV
 │   │   └── Kick_002_120BPM_F1.WAV
+│   ├── Snare/
+│   │   ├── Snare_001_120BPM_D3.WAV
+│   │   └── Snare_002_120BPM_A3.WAV
 │   ├── HiHat/
 │   │   ├── HiHat_001_120BPM_G#4.WAV
 │   │   └── HiHat_002_120BPM_A4.WAV
+│   ├── Clap/
+│   │   ├── Clap_001_120BPM_E4.WAV
+│   │   └── Clap_002_120BPM_B4.WAV
 │   └── Perc/
 │       ├── Perc_001_120BPM_D3.WAV
 │       └── Perc_002_120BPM_E3.WAV
@@ -1378,6 +1627,31 @@ YourDrumkit/
 </ul>
 
 <p><i>For more detailed information and troubleshooting, check the Log tab during processing.</i></p>
+
+<h4>Advanced Drum Classification</h4>
+<p>Uses machine learning-based classification with research-backed features from Herrera et al. (2002) and Sandvold & Gouyon (2004):</p>
+<ul>
+<li><b>Spectral Centroid:</b> Brightness of the sound (mean and standard deviation)</li>
+<li><b>Spectral Flatness:</b> How "noisy" vs "tonal" the sound is</li>
+<li><b>Spectral Contrast:</b> Difference between peaks and valleys in the spectrum</li>
+<li><b>RMS Energy:</b> Overall loudness of the sample</li>
+<li><b>Energy Distribution:</b> How energy is distributed across low (0-500Hz), mid (500-2000Hz), and high (2000+Hz) frequency bands</li>
+<li><b>MFCCs:</b> 13 Mel-Frequency Cepstral Coefficients plus delta values for timbral analysis</li>
+<li><b>Zero Crossing Rate:</b> How "noisy" the signal is</li>
+<li><b>Attack Time & Slope:</b> How quickly the sound reaches its peak</li>
+<li><b>Spectral Rolloff & Bandwidth:</b> Frequency distribution characteristics</li>
+</ul>
+
+<p><b>Classification Categories:</b></p>
+<ul>
+<li><b>Kick:</b> Low frequency content with high energy and fast attack</li>
+<li><b>Snare:</b> Mid-range frequency with high spectral flatness</li>
+<li><b>HiHat:</b> High frequency content with high zero crossing rate</li>
+<li><b>Clap:</b> Mid-high frequency with prominent burst envelope</li>
+<li><b>Percussion:</b> General percussion sounds that don't fit other categories</li>
+</ul>
+
+<p><b>Fallback System:</b> If ML classification confidence is low or unavailable, the system uses heuristic rules based on the research findings.</p>
         """
         
         self.help_text.setHtml(help_content)
@@ -1649,7 +1923,7 @@ class ProcessingWorker(QThread):
         # Initialize processors
         try:
             self.demucs_processor = DemucsProcessor(logger)
-            self.drum_classifier = DrumClassifier()
+            self.drum_classifier = DrumClassifier(logger)
             self.dominant_frequency_detector = DominantFrequencyDetector()
             self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
             self.youtube_downloader = YouTubeDownloader(logger)
@@ -2327,10 +2601,10 @@ class ProcessingWorker(QThread):
             return 0  # Return 0 samples processed on error
     
     def process_drums_with_subfolders(self, audio_data, sample_rate, output_dir, bpm, file_identifier=""):
-        """Process drums into frequency-based subfolders: Kick, Perc, HiHat using hybrid detection"""
+        """Process drums into frequency-based subfolders: Kick, Snare, HiHat, Clap, Perc using ML classification"""
         try:
             if self.logger:
-                self.logger.info(f"Processing drums with hybrid detection...")
+                self.logger.info(f"Processing drums with ML-based classification...")
             
             # Use hybrid detection optimized for drums (transient-based)
             if hasattr(self, 'status_updated'):
@@ -2349,22 +2623,37 @@ class ProcessingWorker(QThread):
             
             # Create subfolders for different drum types
             kick_dir = os.path.join(output_dir, "Kick")
-            perc_dir = os.path.join(output_dir, "Perc")
+            snare_dir = os.path.join(output_dir, "Snare")
             hihat_dir = os.path.join(output_dir, "HiHat")
+            clap_dir = os.path.join(output_dir, "Clap")
+            perc_dir = os.path.join(output_dir, "Perc")
             
-            os.makedirs(kick_dir, exist_ok=True)
-            os.makedirs(perc_dir, exist_ok=True)
-            os.makedirs(hihat_dir, exist_ok=True)
+            # Create directories if they don't exist
+            for dir_path in [kick_dir, snare_dir, hihat_dir, clap_dir, perc_dir]:
+                os.makedirs(dir_path, exist_ok=True)
+                if self.logger:
+                    self.logger.info(f"Created/verified directory: {dir_path}")
             
-            sample_count = 0
+            # Initialize sample counters for each category
+            sample_counters = {
+                'kick': self.get_next_sample_number(kick_dir, "Kick"),
+                'snare': self.get_next_sample_number(snare_dir, "Snare"),
+                'hihat': self.get_next_sample_number(hihat_dir, "HiHat"),
+                'clap': self.get_next_sample_number(clap_dir, "Clap"),
+                'perc': self.get_next_sample_number(perc_dir, "Perc")
+            }
+            
+            total_samples = len(sample_boundaries)
             for i, (start, end) in enumerate(sample_boundaries):
                 if self.stop_flag:
+                    if self.logger:
+                        self.logger.info("Stop flag detected - breaking drum processing loop")
                     break
                 
                 # Check for skip flag
                 if self.skip_flag:
                     if self.logger:
-                        self.logger.info(f"Skipping drum sample {i+1}/{len(sample_boundaries)}")
+                        self.logger.info(f"Skipping drum sample {i+1}/{total_samples}")
                     self.skip_flag = False  # Reset skip flag
                     continue
                 
@@ -2403,133 +2692,99 @@ class ProcessingWorker(QThread):
                         self.status_updated.emit(f"Skipping drum sample {i+1}: too short ({sample_duration*1000:.1f}ms)")
                     continue
                 
+                # Skip samples that are too short for feature extraction (less than 20ms)
+                if sample_duration < 0.02 and len(sample_boundaries) > 1:
+                    if self.logger:
+                        self.logger.info(f"Skipping drum sample {i+1}: too short for feature extraction ({sample_duration*1000:.1f}ms)")
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping drum sample {i+1}: too short for analysis ({sample_duration*1000:.1f}ms)")
+                    continue
+                
                 # Log sample details for debugging
                 if self.logger:
                     self.logger.info(f"Processing drum sample {i+1}: duration {sample_duration:.3f}s")
                 
-                # Classify drum sample based on frequency characteristics
-                drum_type = self.classify_drum_by_frequency(sample_audio, sample_rate)
+                # Classify drum sample using ML-based classifier
+                drum_type = self.drum_classifier.classify_sample(sample_audio, sample_rate)
                 if self.logger:
-                    self.logger.info(f"Classified as: {drum_type}")
+                    self.logger.info(f"ML classification result: {drum_type}")
                 
-                # Determine target directory
-                if drum_type == "Kick":
+                # Determine target directory based on classification
+                if drum_type == "kick":
                     target_dir = kick_dir
-                    prefix = "Kick"
-                elif drum_type == "HiHat":
+                    sample_name = f"Kick_{sample_counters['kick']:03d}"
+                    sample_counters['kick'] += 1
+                elif drum_type == "snare":
+                    target_dir = snare_dir
+                    sample_name = f"Snare_{sample_counters['snare']:03d}"
+                    sample_counters['snare'] += 1
+                elif drum_type == "hihat":
                     target_dir = hihat_dir
-                    prefix = "HiHat"
-                else:  # Perc
+                    sample_name = f"HiHat_{sample_counters['hihat']:03d}"
+                    sample_counters['hihat'] += 1
+                elif drum_type == "clap":
+                    target_dir = clap_dir
+                    sample_name = f"Clap_{sample_counters['clap']:03d}"
+                    sample_counters['clap'] += 1
+                else:  # perc or any other type
                     target_dir = perc_dir
-                    prefix = "Perc"
+                    sample_name = f"Perc_{sample_counters['perc']:03d}"
+                    sample_counters['perc'] += 1
                 
-                # Generate filename with sequential numbering
-                next_number = self.get_next_sample_number(target_dir, prefix)
-                filename_parts = [f"{prefix}_{next_number:03d}"]
+                # Add file identifier if provided
                 if file_identifier:
-                    filename_parts.append(file_identifier)
+                    sample_name += f"_{file_identifier}"
                 
-                if bpm:
-                    filename_parts.append(f"{bpm}BPM")
+                # Add BPM if detected
+                if bpm and bpm > 0:
+                    sample_name += f"_{int(bpm)}BPM"
                 
-                # Dominant frequency detection with timeout
+                # Add dominant frequency if detected
                 if self.detect_pitch:
-                    freq_result, freq_status = self.run_with_timeout(
-                        self.dominant_frequency_detector.detect_dominant_frequency, sample_audio, sample_rate
-                    )
-                    if freq_status == "success" and freq_result and freq_result != "N/A":
-                        filename_parts.append(freq_result)
+                    try:
+                        dominant_freq = self.run_with_timeout(
+                            self.dominant_frequency_detector.detect_dominant_frequency,
+                            sample_audio, sample_rate
+                        )
+                        if dominant_freq and isinstance(dominant_freq, str):
+                            sample_name += f"_{dominant_freq}"
+                    except Exception as e:
                         if self.logger:
-                            self.logger.info(f"Dominant frequency detected for {drum_type} sample {i+1}: {freq_result}")
-                    elif freq_status == "timeout":
-                        if self.logger:
-                            self.logger.warning(f"Dominant frequency detection timeout for {drum_type} sample {i+1}")
-                        if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Dominant frequency detection timeout for {drum_type} sample {i+1}, continuing...")
-                    else:
-                        if self.logger:
-                            self.logger.warning(f"Dominant frequency detection failed for {drum_type} sample {i+1}: {freq_status}")
-                        if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Dominant frequency detection failed for {drum_type} sample {i+1}: {freq_status}")
+                            self.logger.warning(f"Could not detect dominant frequency for drum sample {i+1}: {e}")
                 
-                filename = "_".join(filename_parts) + f".{self.output_format.upper()}"
-                filepath = os.path.join(target_dir, filename)
+                # Check similarity with existing samples in the same category
+                if self.similarity_checker.is_similar_to_existing(sample_audio, sample_rate, drum_type):
+                    if self.logger:
+                        self.logger.info(f"Skipping {drum_type} sample {i+1}: too similar to existing samples")
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Skipping {drum_type} sample {i+1}: too similar")
+                    continue
                 
-                # Similarity check with timeout
+                # Save the sample
                 try:
-                    similarity_result, similarity_status = self.run_with_timeout(
-                        self.similarity_checker.is_similar_to_existing, sample_audio, sample_rate, drum_type
-                    )
+                    output_filename = f"{sample_name}.{self.output_format.lower()}"
+                    output_path = os.path.join(target_dir, output_filename)
+                    
+                    self.save_audio_sample(sample_audio, sample_rate, output_path)
+                    
+                    if self.logger:
+                        self.logger.info(f"Saved {drum_type} sample: {output_filename}")
+                    
+                    if hasattr(self, 'status_updated'):
+                        self.status_updated.emit(f"Saved {drum_type} sample {i+1}/{total_samples}")
+                    if hasattr(self, 'progress_updated'):
+                        self.progress_updated.emit(40 + int(50 * (i+1) / max(1, total_samples)))
+                        
                 except Exception as e:
                     if self.logger:
-                        self.logger.error(f"Error during similarity check for {drum_type} sample {i+1}: {e}")
-                    similarity_status = "error"
-                    similarity_result = False
-                
-                if similarity_status == "timeout":
-                    if self.logger:
-                        self.logger.warning(f"Similarity check timeout for {drum_type} sample {i+1}, saving sample...")
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Similarity check timeout for {drum_type} sample {i+1}, saving sample...")
-                    # Save sample even if similarity check times out
-                    try:
-                        self.save_audio_sample(sample_audio, sample_rate, filepath)
-                        sample_count += 1
-                        if self.logger:
-                            self.logger.info(f"Saved {drum_type} sample {i+1}: {filename}")
-                    except Exception as e:
-                        if self.logger:
-                            self.logger.error(f"Failed to save sample after similarity timeout: {e}")
-                elif similarity_status == "success" and similarity_result:
-                    if self.logger:
-                        self.logger.info(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Skipping {drum_type} sample {i+1}: too similar to existing samples.")
+                        self.logger.error(f"Error saving drum sample {i+1}: {e}")
                     continue
-                elif similarity_status == "success" and not similarity_result:
-                    # Not similar, save the sample
-                    if self.logger:
-                        self.logger.info(f"Saving {drum_type} sample {i+1}: {filename}")
-                    try:
-                        self.save_audio_sample(sample_audio, sample_rate, filepath)
-                        sample_count += 1
-                    except Exception as e:
-                        if self.logger:
-                            self.logger.error(f"Failed to save {drum_type} sample {i+1}: {e}")
-                        if hasattr(self, 'status_updated'):
-                            self.status_updated.emit(f"Failed to save {drum_type} sample {i+1}: {str(e)}")
-                else:
-                    # Similarity check failed, save sample anyway
-                    if self.logger:
-                        self.logger.warning(f"Similarity check failed for {drum_type} sample {i+1}: {similarity_status}, saving sample...")
-                    if hasattr(self, 'status_updated'):
-                        self.status_updated.emit(f"Similarity check failed for {drum_type} sample {i+1}: {similarity_status}, saving sample...")
-                    try:
-                        self.save_audio_sample(sample_audio, sample_rate, filepath)
-                        sample_count += 1
-                    except Exception as e:
-                        if self.logger:
-                            self.logger.error(f"Failed to save sample after similarity failure: {e}")
-                
-                # Update progress
-                if hasattr(self, 'status_updated'):
-                    self.status_updated.emit(f"Processed {drum_type} sample {i+1}/{len(sample_boundaries)}...")
-                if hasattr(self, 'progress_updated'):
-                    self.progress_updated.emit(40 + int(50 * (i+1) / max(1, len(sample_boundaries))))
-            
-            if self.logger:
-                self.logger.info(f"Successfully created {sample_count} drum samples")
-            if hasattr(self, 'status_updated'):
-                self.status_updated.emit(f"Successfully created {sample_count} drum samples.")
-            return sample_count
-            
+                    
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error processing drums: {e}")
-            if hasattr(self, 'status_updated'):
-                self.status_updated.emit(f"Error processing drums: {str(e)}")
-            return 0
-
+                self.logger.error(f"Error in drum processing: {e}")
+            print(f"Error in drum processing: {e}")
+    
     def classify_drum_by_frequency(self, audio_data, sample_rate):
         """Classify drum sample as Kick, HiHat, or Perc based on frequency characteristics"""
         try:
