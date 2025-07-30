@@ -5,11 +5,64 @@ build/dist/
 # Ignore BFG Repo-Cleaner
 bfg.jar
 
-# Ignore Python cache
-__pycache__/ 
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 
 # Ignore venv stuff
 venv/
+env/
+ENV/
 
-build/ 
+# Ignore build directories
+build/
+dist/
+*.egg-info/
+
+# Ignore PyTorch model cache and downloads
+torch/
+*.pth
+*.pt
+*.ckpt
+*.th
+
+# Ignore audio processing temporary files
+*.wav.tmp
+*.mp3.tmp
+*.flac.tmp
+temp_stems/
+temp_audio/
+
+# Ignore log files
+*.log
+logs/
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Ignore IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore temporary files
+*.tmp
+*.temp
+*.bak
+
+# Ignore large audio files (optional - uncomment if you don't want to track audio files)
+# *.wav
+# *.mp3
+# *.flac
+# *.m4a
+# *.ogg
+
+# Ignore metadata files that might contain sensitive info
+metadata.json 
 

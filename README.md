@@ -1,6 +1,6 @@
 # MagicSample
 
-![Version](https://img.shields.io/badge/version-0.0.2-blue)
+![Version](https://img.shields.io/badge/version-0.1.3-blue)
 
 ---
 
@@ -12,11 +12,19 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 
 - **Advanced Stem Separation**: Uses Demucs for high-quality separation of drums, bass, vocals, and other instruments
 - **BPM Detection**: Automatically detects and labels samples with BPM information
-- **Pitch Detection**: Estimates and labels samples with musical pitch information
-- **Drum Classification**: Automatically classifies drum samples into categories (hi-hat, snare, kick, tom, etc.)
-- **Organized Output**: Creates a structured drumkit folder with subfolders for each instrument type
+- **Advanced Dominant Frequency Detection**: Multi-algorithm dominant frequency detection with Scientific Pitch Notation (SPN)
+- **Advanced Drum Classification**: ML-based classification using research-backed features (Spectral Centroid, MFCCs, Energy Distribution, Attack Time, etc.)
+- **Organized Drum Output**: Creates subfolders for Kick, Snare, HiHat, Clap, and Percussion
 - **Multiple Output Formats**: Supports WAV, FLAC, and OGG formats
-- **User-Friendly GUI**: Modern PyQt6 interface with progress tracking
+- **User-Friendly GUI**: Modern PyQt6 interface with progress tracking and real-time logging
+- **Comprehensive Error Handling**: Graceful error recovery with detailed logging
+- **Safe Stop & Cleanup**: Preserves processed samples when stopping mid-process
+- **Skip Functionality**: Skip individual samples during processing
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **YouTube Integration**: Download and process YouTube videos, playlists, and channels directly
+- **Hybrid Sample Detection**: Advanced transient detection and energy-based slicing for improved one-shot detection
+- **Minimum Amplitude Threshold**: Configurable threshold to filter out unusably quiet samples
+- **Fast Similarity Checking**: 5-10x faster similarity comparison using spectral centroid + RMS energy
 
 ## Installation
 
@@ -92,17 +100,43 @@ MagicSample/
 ## Usage
 
 1. **Run the application**: `python MagicSample.py`
-2. **Select Input File**: Choose an audio file (WAV, MP3, FLAC, OGG, M4A)
+2. **Select Input Files**: Choose audio files (WAV, MP3, FLAC, OGG, M4A) and/or add YouTube URLs
 3. **Choose Output Directory**: Select where to save the drumkit
+
+### YouTube Integration
+
+MagicSample supports processing YouTube content directly:
+
+- **Single Videos**: Add YouTube video URLs to download and process
+- **Playlists**: Process entire playlists automatically
+- **Channels**: Download videos from YouTube channels
+- **Automatic Audio Extraction**: Converts videos to high-quality audio
+- **Mixed Processing**: Combine local files and YouTube URLs in the same session
+- **Automatic Cleanup**: Removes downloaded files after processing
+
+**Supported YouTube URL Formats:**
+- `https://www.youtube.com/watch?v=VIDEO_ID`
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://www.youtube.com/channel/CHANNEL_ID`
+- `https://youtu.be/VIDEO_ID`
+- `https://www.youtube.com/shorts/VIDEO_ID`
 4. **Configure Options**:
    - **Split to stems**: Separate into drums, bass, vocals, other
    - **Detect BPM**: Automatically detect and label BPM
-   - **Detect pitch**: Estimate and label musical pitch
+   - **Detect Dominant Frequency**: Estimate and label the most prominent frequency
    - **Classify drums**: Automatically categorize drum samples
-   - **Sensitivity**: Adjust sample detection sensitivity (5-30 dB)
+   - **Sample Detection Sensitivity**: Adjust sample detection sensitivity (5-30)
+   - **Sample Similarity Threshold**: Control duplicate detection (0-100%)
+   - **Sample Timeout**: Maximum processing time per sample (milliseconds)
+   - **Min Amplitude (dBFS)**: Minimum amplitude threshold to filter out quiet samples
    - **Output Format**: Choose WAV, FLAC, or OGG
    - **Drumkit Name**: Name for your drumkit folder
-5. **Start Processing**: Click "Start Processing" and wait for completion
+5. **Start Processing**: Click "Start Processing" and monitor progress
+6. **Use Controls**: 
+   - **Skip Sample**: Skip current sample and continue processing
+   - **Stop**: Safely stop processing and save completed samples
+   - **Log Tab**: Monitor real-time processing information
+   - **Help Tab**: Access comprehensive documentation
 
 ## Output Structure
 
@@ -111,28 +145,28 @@ The tool creates a drumkit folder with the following structure:
 ```
 MyDrumkit/
 ├── metadata.json          # Processing information and settings
-├── DRUMS/                 # Drum samples (split into subfolders)
-│   ├── KICKS/            # Kick drum samples (low frequency: 40-250 Hz)
-│   ├── SNARES/           # Snare drum samples (broad range: 120 Hz-10 kHz)
-│   ├── CLAPS/            # Clap samples (mid-high frequency: 800 Hz-10 kHz)
-│   └── HI_HATS/          # Hi-hat samples (high frequency: 5-10 kHz)
-├── BASS/                  # Bass samples (individual samples)
-├── VOCALS/                # Vocal stem (whole acapella file)
-└── OTHER/                 # Other instrument samples (individual samples)
+├── Drums/                 # Drum samples (split into subfolders)
+│   ├── Kick/             # Kick drum samples (low frequency: <200 Hz)
+│   ├── HiHat/            # Hi-hat samples (high frequency: >2000 Hz)
+│   └── Perc/             # Percussion samples (mid frequency: 200-2000 Hz)
+├── Bass/                  # Bass samples (individual samples)
+├── Vocals/                # Vocal stem (whole acapella file)
+└── Other/                 # Other instrument samples (individual samples)
 ```
 
 ## Sample Naming Convention
 
 Samples are automatically named with the following format:
-- `{INSTRUMENT}_{number}_{BPM}BPM_{pitch}.{FORMAT}`
+- `{Type}_{number}_{BPM}BPM_{Pitch}.{Format}`
 
 Examples:
-- `KICK_001_120BPM_C4.WAV`
-- `HIHAT_002_120BPM_N/A.WAV`
-- `SNARE_003_120BPM_A2.WAV`
-- `CLAP_001_120BPM_N/A.WAV`
-- `BASS_001_120BPM_A2.WAV`
-- `VOCALS_120BPM.WAV` (whole acapella file)
+- `Kick_001_120BPM_C2.WAV`
+- `HiHat_002_120BPM_G#4.WAV`
+- `Bass_001_120BPM_F1.WAV`
+- `Vocals_120BPM.WAV` (whole acapella file)
+- `Other_001_120BPM_A3.WAV`
+
+**Note**: Dominant frequency information uses Scientific Pitch Notation (SPN) and is only included when dominant frequency detection is enabled and successful.
 
 ## Installation Issues?
 
@@ -164,6 +198,7 @@ If you encounter installation problems:
 - **soundfile**: Audio file I/O
 - **numpy**: Numerical computing
 - **torch**: Deep learning framework
+- **yt-dlp**: YouTube video downloading
 - **scipy**: Scientific computing
 
 ## License
@@ -176,7 +211,39 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## Changelog
 
-### Version 2.0 (Demucs)
+### Version 0.0.6 (Latest)
+- **Comprehensive Exception Handling**: Added extensive error handling throughout the application
+- **Safe Stop & Cleanup**: Implemented proper cleanup when stopping processing mid-way
+- **Skip Sample Button**: Added ability to skip individual samples during processing
+- **Real-time Logging**: Enhanced logging system with dedicated Log tab
+- **Help Documentation**: Added comprehensive Help tab with detailed parameter explanations
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **Sample Similarity Detection**: Prevents duplicate samples with configurable threshold
+- **Advanced Dominant Frequency Detection**: Multi-algorithm dominant frequency detection with Scientific Pitch Notation
+- **Improved UI**: Better button management and user feedback
+
+### Version 0.0.5
+- **Comprehensive Exception Handling**: Added extensive error handling throughout the application
+- **Safe Stop & Cleanup**: Implemented proper cleanup when stopping processing mid-way
+- **Skip Sample Button**: Added ability to skip individual samples during processing
+- **Real-time Logging**: Enhanced logging system with dedicated Log tab
+- **Help Documentation**: Added comprehensive Help tab with detailed parameter explanations
+- **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
+- **Sample Similarity Detection**: Prevents duplicate samples with configurable threshold
+- **Advanced Pitch Detection**: Multi-algorithm pitch detection with Scientific Pitch Notation
+- **Improved UI**: Better button management and user feedback
+
+### Version 0.0.4
+- Fixed Demucs model loading issues
+- Improved stem separation reliability
+- Enhanced error reporting and logging
+
+### Version 0.0.3
+- Added sample similarity comparison within categories
+- Implemented custom multi-algorithm pitch detection
+- Added sample timeout functionality
+
+### Version 0.0.2 (Demucs)
 - Replaced Spleeter with Demucs for better separation quality
 - Added drum classification system
 - Enhanced pitch detection
