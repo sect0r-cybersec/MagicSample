@@ -1,6 +1,6 @@
 @echo off
-echo MagicSample - YouTube Playlist Fix Script
-echo =========================================
+echo MagicSample - Web Download Fix Script
+echo =====================================
 echo.
 
 REM Check if we're in the right directory
@@ -30,17 +30,22 @@ if errorlevel 1 (
 )
 
 echo.
-echo Testing YouTube playlist functionality...
+echo Testing web playlist functionality...
 python test_youtube_playlist.py
+
+echo.
+echo Testing web download fix...
+python test_youtube_fix.py
 
 echo.
 echo If the test shows errors, try these solutions:
 echo 1. Update yt-dlp: pip install --upgrade yt-dlp
 echo 2. Install FFmpeg: https://ffmpeg.org/download.html
 echo 3. Check your internet connection
-echo 4. Try a different YouTube playlist URL
+echo 4. Try a different web URL
+echo 5. Check supported sites: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 echo.
-echo To test with your own playlist URL, edit test_youtube_playlist.py
-echo and replace the test URLs with your playlist URL.
+echo To test with your own URL, edit test_youtube_playlist.py
+echo and replace the test URLs with your web URL.
 echo.
 pause

@@ -171,13 +171,13 @@ This will verify that all components are working correctly.
 
 ## Common Runtime Issues
 
-### 1. YouTube Playlist Download Issues
+### 1. Web Content Download Issues
 
-**Problem**: YouTube playlists fail to download or process
+**Problem**: Web content (YouTube, SoundCloud, etc.) fails to download or process
 
 **Solutions**:
 
-#### Option A: Use the YouTube Playlist Fix Script
+#### Option A: Use the Web Download Fix Script
 ```bash
 # Run the provided fix script
 fix_youtube_playlists.bat
@@ -190,9 +190,18 @@ pip install --upgrade yt-dlp
 
 # Test playlist functionality
 python test_youtube_playlist.py
+
+# Test single video download
+python test_youtube_fix.py
 ```
 
-#### Option C: Check FFmpeg Installation
+#### Option C: Check Site Support
+```bash
+# Check if your site is supported
+# Visit: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
+```
+
+#### Option D: Check FFmpeg Installation
 ```bash
 # Check if FFmpeg is installed
 ffmpeg -version

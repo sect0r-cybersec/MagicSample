@@ -989,46 +989,43 @@ class DemucsProcessor:
             traceback.print_exc()
             raise
 
-class YouTubeDownloader:
-    """Handles YouTube video downloading and audio extraction"""
+class WebDownloader:
+    """Handles web video/audio downloading and extraction (YouTube, SoundCloud, etc.)"""
     
     def __init__(self, logger=None):
         self.logger = logger
         self.temp_dir = None
         self.downloaded_files = []
     
-    def is_youtube_url(self, url):
-        """Check if a string is a YouTube URL"""
-        youtube_patterns = [
-            r'(?:https?://)?(?:www\.)?youtube\.com/watch\?v=[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtube\.com/playlist\?list=[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtube\.com/channel/[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtube\.com/c/[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtube\.com/user/[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtu\.be/[\w-]+',
-            r'(?:https?://)?(?:www\.)?youtube\.com/shorts/[\w-]+'
+    def is_web_url(self, url):
+        """Check if a string is a supported web URL (YouTube, SoundCloud, etc.)"""
+        # yt-dlp supports thousands of sites, so we'll use a more general approach
+        # Check if it looks like a URL and let yt-dlp handle the validation
+        url_patterns = [
+            r'https?://[^\s]+',  # Any HTTP/HTTPS URL
+            r'www\.[^\s]+',      # URLs starting with www
         ]
         
-        for pattern in youtube_patterns:
+        for pattern in url_patterns:
             if re.match(pattern, url, re.IGNORECASE):
                 return True
         return False
     
-    def download_youtube_audio(self, url, output_dir):
-        """Download YouTube video and extract audio"""
+    def download_web_audio(self, url, output_dir):
+        """Download web video/audio and extract audio"""
         try:
             if self.logger:
-                self.logger.info(f"Downloading YouTube content: {url}")
+                self.logger.info(f"Downloading web content: {url}")
             
             # Create temporary directory for downloads
             if not self.temp_dir:
-                self.temp_dir = tempfile.mkdtemp(prefix="magicsample_youtube_")
+                self.temp_dir = tempfile.mkdtemp(prefix="magicsample_web_")
                 if self.logger:
                     self.logger.info(f"Created temporary directory: {self.temp_dir}")
             
-            # Configure yt-dlp options with improved playlist handling
+            # Configure yt-dlp options with improved playlist handling and web compatibility
             ydl_opts = {
-                'format': 'bestaudio/best',
+                'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
                 'outtmpl': os.path.join(self.temp_dir, '%(title)s.%(ext)s'),
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
@@ -1042,12 +1039,11 @@ class YouTubeDownloader:
                 'nocheckcertificate': True,
                 'prefer_ffmpeg': True,
                 'geo_bypass': True,
-                'extractor_retries': 5,  # Increased retries
-                'fragment_retries': 5,   # Increased retries
-                'retries': 5,            # Increased retries
+                'extractor_retries': 3,  # Reduced retries to avoid hanging
+                'fragment_retries': 3,   # Reduced retries to avoid hanging
+                'retries': 3,            # Reduced retries to avoid hanging
                 'verbose': True,         # More detailed output
                 # Playlist-specific options
-                'extract_flat': False,   # Ensure we get full info for playlists
                 'playlist_items': '1-',  # Download all playlist items
                 'playlist_reverse': False,
                 'playlist_random': False,
@@ -1061,6 +1057,18 @@ class YouTubeDownloader:
                 'max_sleep_interval': 5,
                 'sleep_interval_requests': 1,
                 'max_sleep_interval_requests': 5,
+                # YouTube-specific options to avoid PO token issues (only for YouTube URLs)
+                'extractor_args': {
+                    'youtube': {
+                        'formats': 'missing_pot',  # Skip formats requiring PO tokens
+                        'skip': ['dash', 'live'],  # Skip problematic formats
+                    }
+                } if 'youtube.com' in url.lower() or 'youtu.be' in url.lower() else {},
+                # Timeout settings to prevent hanging
+                'socket_timeout': 30,
+                'extractor_retries': 2,
+                'fragment_retries': 2,
+                'retries': 2,
             }
             
             downloaded_files = []
@@ -1093,8 +1101,8 @@ class YouTubeDownloader:
                         import traceback
                         self.logger.error(f"Traceback: {traceback.format_exc()}")
                     
-                    # Try alternative approach for playlists
-                    if 'playlist' in url.lower():
+                    # Try alternative approach for playlists (YouTube-specific)
+                    if 'playlist' in url.lower() and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()):
                         if self.logger:
                             self.logger.info("Trying alternative playlist download method...")
                         return self._download_playlist_alternative(url, ydl_opts)
@@ -1124,8 +1132,48 @@ class YouTubeDownloader:
                                 self.logger.info(f"Video URL: {video_url}")
                             
                             # Create a new YoutubeDL instance for each video to avoid conflicts
-                            with yt_dlp.YoutubeDL(ydl_opts) as video_ydl:
-                                video_ydl.download([video_url])
+                            try:
+                                with yt_dlp.YoutubeDL(ydl_opts) as video_ydl:
+                                    # Add timeout to prevent hanging
+                                    import signal
+                                    import threading
+                                    import time
+                                    
+                                    download_completed = [False]
+                                    download_error = [None]
+                                    
+                                    def download_with_timeout():
+                                        try:
+                                            video_ydl.download([video_url])
+                                            download_completed[0] = True
+                                        except Exception as e:
+                                            download_error[0] = e
+                                    
+                                    # Start download in a separate thread
+                                    download_thread = threading.Thread(target=download_with_timeout)
+                                    download_thread.daemon = True
+                                    download_thread.start()
+                                    
+                                    # Wait for completion or timeout (5 minutes)
+                                    timeout_seconds = 300
+                                    start_time = time.time()
+                                    while not download_completed[0] and (time.time() - start_time) < timeout_seconds:
+                                        time.sleep(1)
+                                    
+                                    if not download_completed[0]:
+                                        if self.logger:
+                                            self.logger.warning(f"Download timeout for video {i+1}, skipping...")
+                                        continue
+                                    
+                                    if download_error[0]:
+                                        if self.logger:
+                                            self.logger.error(f"Download error for video {i+1}: {download_error[0]}")
+                                        continue
+                                        
+                            except Exception as e:
+                                if self.logger:
+                                    self.logger.error(f"Failed to create YoutubeDL instance for video {i+1}: {e}")
+                                continue
                             
                             # Find the downloaded file
                             for file in os.listdir(self.temp_dir):
@@ -1173,7 +1221,7 @@ class YouTubeDownloader:
             self.downloaded_files.extend(downloaded_files)
             
             if self.logger:
-                self.logger.info(f"Successfully downloaded {len(downloaded_files)} audio files")
+                self.logger.info(f"Successfully downloaded {len(downloaded_files)} audio files from web")
                 for file_path in downloaded_files:
                     self.logger.info(f"  - {os.path.basename(file_path)}")
             
@@ -1181,7 +1229,7 @@ class YouTubeDownloader:
             
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error in YouTube download: {str(e)}")
+                self.logger.error(f"Error in web download: {str(e)}")
                 self.logger.error(f"Error type: {type(e).__name__}")
                 import traceback
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
@@ -1230,7 +1278,41 @@ class YouTubeDownloader:
                         try:
                             # Use original options for actual download
                             with yt_dlp.YoutubeDL(ydl_opts) as video_ydl:
-                                video_ydl.download([video_url])
+                                # Add timeout to prevent hanging
+                                import signal
+                                import threading
+                                import time
+                                
+                                download_completed = [False]
+                                download_error = [None]
+                                
+                                def download_with_timeout():
+                                    try:
+                                        video_ydl.download([video_url])
+                                        download_completed[0] = True
+                                    except Exception as e:
+                                        download_error[0] = e
+                                
+                                # Start download in a separate thread
+                                download_thread = threading.Thread(target=download_with_timeout)
+                                download_thread.daemon = True
+                                download_thread.start()
+                                
+                                # Wait for completion or timeout (5 minutes)
+                                timeout_seconds = 300
+                                start_time = time.time()
+                                while not download_completed[0] and (time.time() - start_time) < timeout_seconds:
+                                    time.sleep(1)
+                                
+                                if not download_completed[0]:
+                                    if self.logger:
+                                        self.logger.warning(f"Alternative method: Download timeout for video {i+1}, skipping...")
+                                    continue
+                                
+                                if download_error[0]:
+                                    if self.logger:
+                                        self.logger.error(f"Alternative method: Download error for video {i+1}: {download_error[0]}")
+                                    continue
                             
                             # Find downloaded file
                             for file in os.listdir(self.temp_dir):
@@ -1300,7 +1382,7 @@ class MainWindow(QWidget):
         self.drum_classifier = DrumClassifier()
         self.dominant_frequency_detector = DominantFrequencyDetector()
         self.similarity_checker = SampleSimilarityChecker()
-        self.youtube_downloader = YouTubeDownloader()
+        self.web_downloader = WebDownloader()
         self.setup_ui()  # Setup UI first to create log_text widget
         self.setup_logging()  # Then setup logging
     
@@ -1386,10 +1468,10 @@ class MainWindow(QWidget):
         input_btn.setFixedWidth(80)
         file_buttons_layout.addWidget(input_btn)
         
-        youtube_btn = QPushButton("Add YouTube")
-        youtube_btn.clicked.connect(self.add_youtube_url)
-        youtube_btn.setFixedWidth(80)
-        file_buttons_layout.addWidget(youtube_btn)
+        web_btn = QPushButton("Add Web URL")
+        web_btn.clicked.connect(self.add_web_url)
+        web_btn.setFixedWidth(80)
+        file_buttons_layout.addWidget(web_btn)
         
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(self.remove_selected_files)
@@ -1606,28 +1688,35 @@ class MainWindow(QWidget):
 <h4>📂 Local Files</h4>
 <p><b>Add Files:</b> Select your source audio files (WAV, MP3, FLAC, OGG, M4A). These files will be processed into individual samples.</p>
 
-<h4>🎥 YouTube Support</h4>
-<p><b>Add YouTube:</b> Add YouTube URLs to download and process videos, playlists, or channels.</p>
+<h4>🌐 Web Support</h4>
+<p><b>Add Web URL:</b> Add URLs from YouTube, SoundCloud, Vimeo, and thousands of other supported sites.</p>
 
-<p><b>Supported YouTube URLs:</b></p>
+<p><b>Supported Sites Include:</b></p>
 <ul>
-<li><b>Single Videos:</b> https://www.youtube.com/watch?v=VIDEO_ID</li>
-<li><b>Playlists:</b> https://www.youtube.com/playlist?list=PLAYLIST_ID</li>
-<li><b>Channels:</b> https://www.youtube.com/channel/CHANNEL_ID</li>
-<li><b>User Channels:</b> https://www.youtube.com/user/USERNAME</li>
-<li><b>Custom URLs:</b> https://www.youtube.com/c/CUSTOM_NAME</li>
-<li><b>Shorts:</b> https://www.youtube.com/shorts/VIDEO_ID</li>
-<li><b>Short URLs:</b> https://youtu.be/VIDEO_ID</li>
+<li><b>YouTube:</b> Videos, playlists, channels, shorts</li>
+<li><b>SoundCloud:</b> Tracks, playlists, user pages</li>
+<li><b>Vimeo:</b> Videos, channels, albums</li>
+<li><b>And thousands more:</b> <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md">Complete list of supported sites</a></li>
 </ul>
 
-<p><b>YouTube Processing Features:</b></p>
+<p><b>Example URL Formats:</b></p>
 <ul>
-<li><b>Automatic Download:</b> Downloads videos and extracts audio automatically</li>
-<li><b>Playlist Support:</b> Processes all videos in a playlist</li>
-<li><b>Channel Support:</b> Downloads videos from channels</li>
+<li><b>YouTube Videos:</b> https://www.youtube.com/watch?v=VIDEO_ID</li>
+<li><b>YouTube Playlists:</b> https://www.youtube.com/playlist?list=PLAYLIST_ID</li>
+<li><b>SoundCloud Tracks:</b> https://soundcloud.com/artist/track-name</li>
+<li><b>Vimeo Videos:</b> https://vimeo.com/VIDEO_ID</li>
+<li><b>YouTube Channels:</b> https://www.youtube.com/channel/CHANNEL_ID</li>
+</ul>
+
+<p><b>Web Processing Features:</b></p>
+<ul>
+<li><b>Automatic Download:</b> Downloads content and extracts audio automatically</li>
+<li><b>Playlist Support:</b> Processes all items in playlists</li>
+<li><b>Channel Support:</b> Downloads content from channels and user pages</li>
 <li><b>Audio Extraction:</b> Converts videos to high-quality WAV audio</li>
 <li><b>Automatic Cleanup:</b> Removes downloaded files after processing</li>
-<li><b>Error Handling:</b> Continues processing if individual videos fail</li>
+<li><b>Error Handling:</b> Continues processing if individual items fail</li>
+<li><b>Multi-Site Support:</b> Works with 1000+ different websites</li>
 </ul>
 
 <p><b>Output Directory:</b> Choose where your drumkit folder will be created. The program will create a new folder with your drumkit name inside this directory.</p>
@@ -1949,27 +2038,27 @@ YourDrumkit/
         """Clear all files from the list"""
         self.input_files_list.clear()
     
-    def add_youtube_url(self):
-        """Add YouTube URL to the input list"""
+    def add_web_url(self):
+        """Add web URL to the input list"""
         url, ok = QInputDialog.getText(
-            self, "Add YouTube URL", 
-            "Enter YouTube URL (video, playlist, or channel):",
+            self, "Add Web URL", 
+            "Enter web URL (YouTube, SoundCloud, Vimeo, etc.):",
             QLineEdit.EchoMode.Normal
         )
         
         if ok and url.strip():
             url = url.strip()
-            if self.youtube_downloader.is_youtube_url(url):
+            if self.web_downloader.is_web_url(url):
                 # Add URL to list if not already present
                 items = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
                 if url not in items:
                     self.input_files_list.addItem(url)
                     if self.logger:
-                        self.logger.info(f"Added YouTube URL: {url}")
+                        self.logger.info(f"Added web URL: {url}")
                 else:
                     QMessageBox.information(self, "Info", "This URL is already in the list.")
             else:
-                QMessageBox.warning(self, "Invalid URL", "Please enter a valid YouTube URL.")
+                QMessageBox.warning(self, "Invalid URL", "Please enter a valid web URL.")
     
     def get_input_files(self):
         """Get list of all input files and URLs"""
@@ -2034,7 +2123,7 @@ YourDrumkit/
             )
             
             # Pass the YouTube downloader to the worker
-            self.worker.youtube_downloader = self.youtube_downloader
+            self.worker.web_downloader = self.web_downloader
             
             self.worker.progress_updated.connect(self.update_progress)
             self.worker.status_updated.connect(self.update_status)
@@ -2131,7 +2220,7 @@ class ProcessingWorker(QThread):
             self.drum_classifier = DrumClassifier(logger)
             self.dominant_frequency_detector = DominantFrequencyDetector()
             self.similarity_checker = SampleSimilarityChecker(similarity_threshold)
-            self.youtube_downloader = YouTubeDownloader(logger)
+            self.web_downloader = WebDownloader(logger)
             self.advanced_detector = AdvancedSampleDetector(min_amplitude_db, logger)
             # Note: We'll use the main window's logger for this class
             pass  # Logging will be handled by the main window
@@ -2292,7 +2381,7 @@ class ProcessingWorker(QThread):
             traceback.print_exc()
     
     def process_single_file(self, audio_data, sample_rate, drumkit_path, file_identifier, file_index, total_files):
-        """Process a single audio file (either local or downloaded from YouTube)"""
+        """Process a single audio file (either local or downloaded from web)"""
         try:
             # Detect BPM for this file
             bpm = None
@@ -2326,9 +2415,9 @@ class ProcessingWorker(QThread):
                 os.makedirs(temp_dir, exist_ok=True)
                 
                 try:
-                    # For YouTube downloads, we need to save the audio data temporarily
+                    # For web downloads, we need to save the audio data temporarily
                     temp_audio_path = None  # Initialize variable
-                    if hasattr(self, 'youtube_downloader') and self.youtube_downloader.temp_dir:
+                    if hasattr(self, 'web_downloader') and self.web_downloader.temp_dir:
                         temp_audio_path = os.path.join(temp_dir, f"{file_identifier}.wav")
                         self.save_audio_sample(audio_data, sample_rate, temp_audio_path)
                         input_path_for_stems = temp_audio_path

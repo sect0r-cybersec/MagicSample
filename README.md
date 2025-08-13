@@ -21,7 +21,7 @@ An enhanced audio sample extraction and drumkit creation tool that uses the Demu
 - **Safe Stop & Cleanup**: Preserves processed samples when stopping mid-process
 - **Skip Functionality**: Skip individual samples during processing
 - **Sample Timeout Protection**: Configurable timeout to prevent hanging on complex samples
-- **YouTube Integration**: Download and process YouTube videos, playlists, and channels directly
+- **Web Integration**: Download and process videos/audio from YouTube, SoundCloud, Vimeo, and thousands of other supported sites
 - **Hybrid Sample Detection**: Advanced transient detection and energy-based slicing for improved one-shot detection
 - **Minimum Amplitude Threshold**: Configurable threshold to filter out unusably quiet samples
 - **Fast Similarity Checking**: 5-10x faster similarity comparison using spectral centroid + RMS energy
@@ -100,26 +100,32 @@ MagicSample/
 ## Usage
 
 1. **Run the application**: `python MagicSample.py`
-2. **Select Input Files**: Choose audio files (WAV, MP3, FLAC, OGG, M4A) and/or add YouTube URLs
+2. **Select Input Files**: Choose audio files (WAV, MP3, FLAC, OGG, M4A) and/or add web URLs
 3. **Choose Output Directory**: Select where to save the drumkit
 
-### YouTube Integration
+### Web Integration
 
-MagicSample supports processing YouTube content directly:
+MagicSample supports processing content from thousands of websites directly:
 
-- **Single Videos**: Add YouTube video URLs to download and process
-- **Playlists**: Process entire playlists automatically
-- **Channels**: Download videos from YouTube channels
+- **Single Videos/Audio**: Add URLs from YouTube, SoundCloud, Vimeo, and many other sites
+- **Playlists**: Process entire playlists automatically (YouTube, SoundCloud, etc.)
+- **Channels**: Download videos from channels and user pages
 - **Automatic Audio Extraction**: Converts videos to high-quality audio
-- **Mixed Processing**: Combine local files and YouTube URLs in the same session
+- **Mixed Processing**: Combine local files and web URLs in the same session
 - **Automatic Cleanup**: Removes downloaded files after processing
 
-**Supported YouTube URL Formats:**
+**Supported Sites Include:**
+- **YouTube**: Videos, playlists, channels, shorts
+- **SoundCloud**: Tracks, playlists, user pages
+- **Vimeo**: Videos, channels, albums
+- **And thousands more**: See the [complete list of supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
+
+**Example URL Formats:**
 - `https://www.youtube.com/watch?v=VIDEO_ID`
 - `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://soundcloud.com/artist/track-name`
+- `https://vimeo.com/VIDEO_ID`
 - `https://www.youtube.com/channel/CHANNEL_ID`
-- `https://youtu.be/VIDEO_ID`
-- `https://www.youtube.com/shorts/VIDEO_ID`
 4. **Configure Options**:
    - **Split to stems**: Separate into drums, bass, vocals, other
    - **Detect BPM**: Automatically detect and label BPM
@@ -176,14 +182,15 @@ If you encounter installation problems:
 2. **Check** `TROUBLESHOOTING.md` for solutions to common problems
 3. **Try the conda method**: Run `install_conda.bat` (requires Anaconda/Miniconda)
 
-## YouTube Playlist Issues?
+## Web Download Issues?
 
-If YouTube playlist downloading isn't working:
+If web content downloading isn't working:
 
 1. **Run the fix script**: `fix_youtube_playlists.bat` (Windows) or update yt-dlp manually
 2. **Test functionality**: Run `python test_youtube_playlist.py` to diagnose issues
 3. **Check FFmpeg**: Ensure FFmpeg is installed for audio conversion
 4. **Update yt-dlp**: `pip install --upgrade yt-dlp`
+5. **Check supported sites**: See the [complete list of supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
 
 ## System Requirements
 
@@ -207,7 +214,7 @@ If YouTube playlist downloading isn't working:
 - **soundfile**: Audio file I/O
 - **numpy**: Numerical computing
 - **torch**: Deep learning framework
-- **yt-dlp**: YouTube video downloading
+- **yt-dlp**: Web video/audio downloading (supports 1000+ sites)
 - **scipy**: Scientific computing
 
 ## License
