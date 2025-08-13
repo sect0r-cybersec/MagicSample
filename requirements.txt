@@ -28,4 +28,4 @@ matplotlib>=3.5.0
 scikit-learn>=1.7.0  # Required for ML-based drum classification
 
 # YouTube downloading
-yt-dlp>=2023.0.0 
+yt-dlp>=2024.0.0 

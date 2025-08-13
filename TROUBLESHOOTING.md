@@ -171,13 +171,48 @@ This will verify that all components are working correctly.
 
 ## Common Runtime Issues
 
-### 1. CUDA Out of Memory
+### 1. YouTube Playlist Download Issues
+
+**Problem**: YouTube playlists fail to download or process
+
+**Solutions**:
+
+#### Option A: Use the YouTube Playlist Fix Script
+```bash
+# Run the provided fix script
+fix_youtube_playlists.bat
+```
+
+#### Option B: Manual Fix
+```bash
+# Update yt-dlp to latest version
+pip install --upgrade yt-dlp
+
+# Test playlist functionality
+python test_youtube_playlist.py
+```
+
+#### Option C: Check FFmpeg Installation
+```bash
+# Check if FFmpeg is installed
+ffmpeg -version
+
+# If not installed, download from: https://ffmpeg.org/download.html
+```
+
+#### Option D: Alternative Playlist URLs
+Try these URL formats:
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID`
+- `https://www.youtube.com/channel/CHANNEL_ID`
+
+### 2. CUDA Out of Memory
 **Solution**: The application will automatically fall back to CPU processing if CUDA is not available or runs out of memory.
 
-### 2. Audio File Format Issues
+### 3. Audio File Format Issues
 **Solution**: Ensure your audio files are in supported formats (WAV, MP3, FLAC, OGG, M4A).
 
-### 3. Slow Processing
+### 4. Slow Processing
 **Solutions**:
 - Use shorter audio files for testing
 - Close other applications to free up memory

@@ -176,6 +176,15 @@ If you encounter installation problems:
 2. **Check** `TROUBLESHOOTING.md` for solutions to common problems
 3. **Try the conda method**: Run `install_conda.bat` (requires Anaconda/Miniconda)
 
+## YouTube Playlist Issues?
+
+If YouTube playlist downloading isn't working:
+
+1. **Run the fix script**: `fix_youtube_playlists.bat` (Windows) or update yt-dlp manually
+2. **Test functionality**: Run `python test_youtube_playlist.py` to diagnose issues
+3. **Check FFmpeg**: Ensure FFmpeg is installed for audio conversion
+4. **Update yt-dlp**: `pip install --upgrade yt-dlp`
+
 ## System Requirements
 
 ### Minimum Requirements

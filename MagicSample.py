@@ -892,7 +892,7 @@ class DemucsProcessor:
             if self.logger:
                 self.logger.info(f"Loading Demucs model: {model_name}")
             # Use standard Demucs model loading
-            self.model = get_model(model_name)
+                self.model = get_model(model_name)
             self.model.to(self.device)
             if self.logger:
                 self.logger.info(f"Successfully loaded Demucs model: {model_name}")
@@ -1026,7 +1026,7 @@ class YouTubeDownloader:
                 if self.logger:
                     self.logger.info(f"Created temporary directory: {self.temp_dir}")
             
-            # Configure yt-dlp options
+            # Configure yt-dlp options with improved playlist handling
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(self.temp_dir, '%(title)s.%(ext)s'),
@@ -1035,57 +1035,117 @@ class YouTubeDownloader:
                     'preferredcodec': 'wav',
                     'preferredquality': '192',
                 }],
-                'quiet': True,
-                'no_warnings': True,
+                'quiet': False,  # Enable output for debugging
+                'no_warnings': False,  # Show warnings
                 'extract_flat': False,
-                'ignoreerrors': False,
+                'ignoreerrors': True,  # Continue on errors
                 'nocheckcertificate': True,
                 'prefer_ffmpeg': True,
                 'geo_bypass': True,
+                'extractor_retries': 5,  # Increased retries
+                'fragment_retries': 5,   # Increased retries
+                'retries': 5,            # Increased retries
+                'verbose': True,         # More detailed output
+                # Playlist-specific options
+                'extract_flat': False,   # Ensure we get full info for playlists
+                'playlist_items': '1-',  # Download all playlist items
+                'playlist_reverse': False,
+                'playlist_random': False,
+                'playlist_start': 1,
+                'playlist_end': None,    # Download all items
+                # Additional options for better compatibility
+                'no_check_certificate': True,
+                'http_chunk_size': 10485760,  # 10MB chunks
+                'buffersize': 1024,
+                'sleep_interval': 1,
+                'max_sleep_interval': 5,
+                'sleep_interval_requests': 1,
+                'max_sleep_interval_requests': 5,
             }
             
             downloaded_files = []
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get video info first
+                # Get video info first with detailed error handling
                 try:
-                    info = ydl.extract_info(url, download=False)
                     if self.logger:
-                        self.logger.info(f"Extracted info for: {info.get('title', 'Unknown')}")
+                        self.logger.info(f"Extracting info for: {url}")
+                    
+                    # Use extract_info with download=False to get metadata first
+                    info = ydl.extract_info(url, download=False)
+                    
+                    if info is None:
+                        if self.logger:
+                            self.logger.error(f"Failed to extract info - returned None for: {url}")
+                        return []
+                    
+                    if self.logger:
+                        self.logger.info(f"Successfully extracted info for: {info.get('title', 'Unknown')}")
+                        if 'entries' in info:
+                            self.logger.info(f"Playlist detected with {len(info['entries'])} videos")
+                        else:
+                            self.logger.info("Single video detected")
+                            
                 except Exception as e:
                     if self.logger:
-                        self.logger.error(f"Failed to extract info for {url}: {e}")
+                        self.logger.error(f"Failed to extract info for {url}: {str(e)}")
+                        self.logger.error(f"Error type: {type(e).__name__}")
+                        import traceback
+                        self.logger.error(f"Traceback: {traceback.format_exc()}")
+                    
+                    # Try alternative approach for playlists
+                    if 'playlist' in url.lower():
+                        if self.logger:
+                            self.logger.info("Trying alternative playlist download method...")
+                        return self._download_playlist_alternative(url, ydl_opts)
                     return []
                 
                 # Handle playlists
-                if 'entries' in info:
+                if 'entries' in info and info['entries']:
                     if self.logger:
                         self.logger.info(f"Processing playlist with {len(info['entries'])} videos")
                     
+                    successful_downloads = 0
                     for i, entry in enumerate(info['entries']):
                         if entry is None:
+                            if self.logger:
+                                self.logger.warning(f"Skipping None entry at index {i}")
                             continue
                         
                         try:
+                            video_url = entry.get('webpage_url') or entry.get('url')
+                            if not video_url:
+                                if self.logger:
+                                    self.logger.warning(f"No URL found for playlist item {i+1}")
+                                continue
+                            
                             if self.logger:
                                 self.logger.info(f"Downloading playlist item {i+1}/{len(info['entries'])}: {entry.get('title', 'Unknown')}")
+                                self.logger.info(f"Video URL: {video_url}")
                             
-                            # Download the video
-                            ydl.download([entry['webpage_url']])
+                            # Create a new YoutubeDL instance for each video to avoid conflicts
+                            with yt_dlp.YoutubeDL(ydl_opts) as video_ydl:
+                                video_ydl.download([video_url])
                             
                             # Find the downloaded file
                             for file in os.listdir(self.temp_dir):
                                 if file.endswith('.wav') and not file in downloaded_files:
                                     file_path = os.path.join(self.temp_dir, file)
                                     downloaded_files.append(file_path)
+                                    successful_downloads += 1
                                     if self.logger:
-                                        self.logger.info(f"Downloaded: {file}")
+                                        self.logger.info(f"Successfully downloaded: {file}")
                                     break
                                     
                         except Exception as e:
                             if self.logger:
-                                self.logger.error(f"Failed to download playlist item {i+1}: {e}")
+                                self.logger.error(f"Failed to download playlist item {i+1}: {str(e)}")
+                                self.logger.error(f"Error type: {type(e).__name__}")
                             continue
+                    
+                    if self.logger:
+                        self.logger.info(f"Playlist processing complete: {successful_downloads}/{len(info['entries'])} videos downloaded successfully")
+                        
                 else:
                     # Single video
                     try:
@@ -1100,12 +1160,13 @@ class YouTubeDownloader:
                                 file_path = os.path.join(self.temp_dir, file)
                                 downloaded_files.append(file_path)
                                 if self.logger:
-                                    self.logger.info(f"Downloaded: {file}")
+                                    self.logger.info(f"Successfully downloaded: {file}")
                                 break
                                 
                     except Exception as e:
                         if self.logger:
-                            self.logger.error(f"Failed to download video: {e}")
+                            self.logger.error(f"Failed to download video: {str(e)}")
+                            self.logger.error(f"Error type: {type(e).__name__}")
                         return []
             
             # Store downloaded files for cleanup
@@ -1113,12 +1174,88 @@ class YouTubeDownloader:
             
             if self.logger:
                 self.logger.info(f"Successfully downloaded {len(downloaded_files)} audio files")
+                for file_path in downloaded_files:
+                    self.logger.info(f"  - {os.path.basename(file_path)}")
             
             return downloaded_files
             
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error in YouTube download: {e}")
+                self.logger.error(f"Error in YouTube download: {str(e)}")
+                self.logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return []
+    
+    def _download_playlist_alternative(self, url, ydl_opts):
+        """Alternative method for downloading playlists when the main method fails"""
+        try:
+            if self.logger:
+                self.logger.info("Using alternative playlist download method...")
+            
+            # Modify options for alternative approach
+            alt_opts = ydl_opts.copy()
+            alt_opts.update({
+                'extract_flat': True,  # Extract flat playlist first
+                'quiet': True,
+                'no_warnings': True,
+            })
+            
+            downloaded_files = []
+            
+            with yt_dlp.YoutubeDL(alt_opts) as ydl:
+                # First, get the flat playlist info
+                try:
+                    flat_info = ydl.extract_info(url, download=False)
+                    if not flat_info or 'entries' not in flat_info:
+                        if self.logger:
+                            self.logger.error("Alternative method failed - no playlist entries found")
+                        return []
+                    
+                    if self.logger:
+                        self.logger.info(f"Alternative method found {len(flat_info['entries'])} playlist entries")
+                    
+                    # Now download each video individually
+                    for i, entry in enumerate(flat_info['entries']):
+                        if entry is None:
+                            continue
+                        
+                        video_url = entry.get('url') or entry.get('webpage_url')
+                        if not video_url:
+                            continue
+                        
+                        if self.logger:
+                            self.logger.info(f"Alternative method: Downloading video {i+1}/{len(flat_info['entries'])}")
+                        
+                        try:
+                            # Use original options for actual download
+                            with yt_dlp.YoutubeDL(ydl_opts) as video_ydl:
+                                video_ydl.download([video_url])
+                            
+                            # Find downloaded file
+                            for file in os.listdir(self.temp_dir):
+                                if file.endswith('.wav') and not file in downloaded_files:
+                                    file_path = os.path.join(self.temp_dir, file)
+                                    downloaded_files.append(file_path)
+                                    if self.logger:
+                                        self.logger.info(f"Alternative method: Downloaded {file}")
+                                    break
+                                    
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.error(f"Alternative method failed for video {i+1}: {e}")
+                            continue
+                    
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Alternative playlist method failed: {e}")
+                    return []
+            
+            return downloaded_files
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Alternative playlist download failed: {e}")
             return []
     
     def cleanup(self):
@@ -1734,7 +1871,7 @@ YourDrumkit/
         
         layout.addWidget(self.tab_widget)
         self.setLayout(layout)
-        
+    
         # Setup logging
         self.setup_logging()
     
@@ -2505,6 +2642,7 @@ class ProcessingWorker(QThread):
                         self.logger.info(f"Skipping sample {i+1}/{total_samples}")
                     self.skip_flag = False  # Reset skip flag
                     continue
+                
                 # Extract sample with error handling
                 try:
                     if len(audio_data.shape) > 1:
@@ -2852,6 +2990,7 @@ class ProcessingWorker(QThread):
             if self.logger:
                 self.logger.error(f"Error in drum processing: {e}")
             print(f"Error in drum processing: {e}")
+            return 0  # Return 0 samples processed on error
     
     def classify_drum_by_frequency(self, audio_data, sample_rate):
         """Classify drum sample as Kick, HiHat, or Perc based on frequency characteristics"""
